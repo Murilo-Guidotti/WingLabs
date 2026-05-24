@@ -1,4 +1,4 @@
-import naca_generator as ng
+import NacaGenerator as ng
 import threading as thread
 # from main import analyzeWithXfoil
 import main
