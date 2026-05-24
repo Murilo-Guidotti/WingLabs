@@ -15,9 +15,9 @@ import svgwrite
 import matplotlib.pyplot as plt
 from ambiance import Atmosphere
 from pathlib import Path
-import script_sender as sender
-import naca_generator as nc
-import optimizer
+import ScriptSender as sender
+import NacaGenerator as nc
+import Optimizer
 import Enviroment
 
 # ============================================================
@@ -469,7 +469,7 @@ def main():
     print("\nIniciando otimização...")
     t0 = time.time()
 
-    best_code, result, top5 = optimizer.run(cond, cfg)
+    best_code, result, top5 = Optimizer.run(cond, cfg)
 
     elapsed = time.time() - t0
     print(f"  Tempo total: {elapsed:.1f}s")

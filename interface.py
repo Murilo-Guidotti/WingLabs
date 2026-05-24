@@ -21,9 +21,9 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # Importa o motor principal
-import main as engine
+import Main as engine
 import Enviroment as env
-import optimizer
+import Optimizer
 
 
 # ============================================================
@@ -511,7 +511,7 @@ class NacaGUI:
 
     def _thread_analise(self, cond, cfg):
         try:
-            best_code, result, top5 = optimizer.run(cond, cfg)
+            best_code, result, top5 = Optimizer.run(cond, cfg)
             self.fila.put(("ok", best_code, result, top5, cond))
         except Exception as e:
             self.fila.put(("erro", str(e)))

@@ -1,5 +1,5 @@
 import Enviroment as env
-import naca_tester
+import NacaTester
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
@@ -36,7 +36,7 @@ def run(cond: env.FlightConditions, cfg: dict) -> tuple[str, dict | None, list]:
 
 
     with ThreadPoolExecutor(max_workers=n_threads) as executor:
-        futures = {executor.submit(naca_tester.run, t): t for t in tarefas}
+        futures = {executor.submit(NacaTester.run, t): t for t in tarefas}
         for future in as_completed(futures):
             code, result = future.result()
             if result is not None:
