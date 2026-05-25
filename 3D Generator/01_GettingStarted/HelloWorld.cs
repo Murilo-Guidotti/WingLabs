@@ -16,6 +16,7 @@
 // THE SOFTWARE.
 //
 
+using System.Numerics;
 using PicoGK;
 
 namespace PicoGKExamples
@@ -24,14 +25,19 @@ namespace PicoGKExamples
     {
         public static void Task()
         {
-            // This Task function is called using Library::Go
-            // it implements the actual code you want to execute
+            Lattice latOutside = new();
+            Lattice latInside = new();
 
-            // Create a mesh
-            Mesh msh = Utils.mshCreateCube();
+            latOutside.AddBeam(new Vector3(0), new Vector3(50, 0, 0), 10, 10, false);
+            
+            latInside.AddBeam(new Vector3(0), new Vector3(50, 0, 0), 8, 8, false);
 
-            // Show the mesh in the viewer
-            Library.oViewer().Add(msh);
+            Voxels voxOutside = new Voxels(latOutside);
+            Voxels voxInside = new Voxels(latInside);
+
+            voxOutside.BoolSubtract(voxInside);
+
+            Library.oViewer().Add(voxOutside);
         }
     }
 }
