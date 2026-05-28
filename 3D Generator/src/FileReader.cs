@@ -32,5 +32,13 @@ namespace FileReader
 
             return coordinates;
         }
+
+        public static void ShowAllDatCoordinates(List<Coordinate> coordinates)
+        {
+            foreach(string a in coordinates)
+            {
+                
+            }
+        }
     }
 }
