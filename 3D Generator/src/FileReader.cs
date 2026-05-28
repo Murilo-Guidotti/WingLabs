@@ -2,23 +2,35 @@ namespace FileReader
 {
     class readDat
     {
+        public static int _lineNumber = 1;
         public static void readDatFile(string filePath)
         {
             try
             {
                 using (StreamReader reader = new StreamReader(filePath))
                 {
-                    string line;
-                    char[] x;
-                    string y = "";
+                    string? line;
+                    char[,] x = new char[20, 1001];
+                    char[,] y = new char[20, 1001];
+                    int count = 0;
                     while ((line = reader.ReadLine()) != null)
                     {
-                        x = line.ToArray();
-                        for(int i = 0; i < 10; i++)
+                        if(line.StartsWith("NACA"))
                         {
-                            // x[i] = line.ToArray().ElementAt(i);
+                            Console.WriteLine(line);
+                            _lineNumber++;
+                        } else
+                        {
+                            for(count = 0; line[count] != ' '; count++)
+                            {
+                                x[count,_lineNumber] = line[count];
+                            }
+
+                            Console.WriteLine("Line Count: " + _lineNumber);
+                            Console.WriteLine("Line: " + line);
+                            Console.WriteLine("X: " + getXinIndex(count, _lineNumber, x) + "\n");
+                            _lineNumber++;
                         }
-                        Console.WriteLine(x);
                     }
                 }
             }
@@ -26,6 +38,26 @@ namespace FileReader
             {
                 Console.WriteLine(e);
             }        
+        }
+
+        private static string getXinIndex(int count, int lineNumber, char[,] x)
+        {
+            char[] chars = new char[count];
+            for (int j = 0; j < count; j++)
+            {
+                chars[j] = x[j,lineNumber];
+            }
+
+            return new string(chars);
+        }
+
+        private static char getDatX(int count, int lineNumber, char[,] x, string line)
+        {
+            for(count = 0; line[count] != ' '; count++)
+            {
+                x[count,_lineNumber] = line[count];
+            }
+            return x[count, lineNumber];
         }
     }
 }
