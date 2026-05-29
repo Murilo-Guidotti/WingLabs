@@ -6,7 +6,7 @@ namespace FileReader
     {
         public double X;
         public double Y;
-    }
+    } 
 
     public class DatParser
     {
@@ -19,7 +19,7 @@ namespace FileReader
                 if (line.StartsWith("NACA", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(line))
                 continue;
 
-                string[] parts = line.Split(new[] {' '}, StringSplitOptions.RemoveEmptyEntries);
+                string[] parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
                 if (parts.Length >= 2)
                 {
@@ -35,9 +35,9 @@ namespace FileReader
 
         public static void ShowAllDatCoordinates(List<Coordinate> coordinates)
         {
-            foreach(string a in coordinates)
+            foreach(var coord in coordinates)
             {
-                
+                Console.WriteLine($"X: {coord.X.ToString("F7",CultureInfo.InvariantCulture)}     Y: {coord.Y.ToString("F7",CultureInfo.InvariantCulture)}");
             }
         }
     }
