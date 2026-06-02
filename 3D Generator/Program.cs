@@ -1,7 +1,7 @@
 ﻿using PicoGK;
-using PicoGKExamples;
 using FileReader;
 using PicoGKTesting;
+using Plotter;
 
 // This simple call runs PicoGK with the specified task and shows the PicoGK viewer
 
@@ -11,7 +11,8 @@ using PicoGKTesting;
 string datpath = "../../../../output/naca_6512.dat";
 DatParser.ShowAllDatCoordinates(DatParser.ReadDatFile(datpath));
 
-Library.Go(0.2f, Testing.Run);
+
+Library.Go(1f, () => genPlot.Run(datpath));
 
 // After you close the viewer, the application exits.
 
