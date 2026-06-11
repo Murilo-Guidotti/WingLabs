@@ -7,8 +7,9 @@ namespace Plotter
 {
     class genPlot
     {
-        public static void Run(string filePath)
+        public static void Run()
         {
+            string filePath = "../../../../output/naca_6512.dat";
             Library.oViewer().SetBackgroundColor("#cfcfcf");
             Library.oViewer().SetGroupMaterial(0, "#e97bff", 0, 0.1F);
 
@@ -30,6 +31,8 @@ namespace Plotter
 
                 vecPrev = vecNew;
             }
+
+            DatParser.ShowAllDatCoordinates(DatParser.ReadDatFile(filePath));
 
             Voxels voxLat = new(lat);
 

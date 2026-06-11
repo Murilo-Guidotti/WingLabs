@@ -170,13 +170,13 @@ class NacaGUI:
         frame_topo.pack(fill="x", padx=20)
 
         tk.Label(frame_topo,
-            text="✈  ZENITH AIRFOIL GENERATOR",
+            text="✈  WINGLABS AIRFOIL",
             bg=COR["bg"], fg=COR["azul"],
             font=("Consolas", 15, "bold")
         ).pack(side="left")
 
         tk.Label(frame_topo,
-            text="TCC — Gerador de Asas NACA",
+            text="Gerador de Asas NACA",
             bg=COR["bg"], fg=COR["texto_dim"],
             font=FONTE["label"]
         ).pack(side="left", padx=(12, 0), pady=(4, 0))
@@ -187,7 +187,7 @@ class NacaGUI:
         container.pack(fill="both", expand=True, padx=20, pady=12)
 
         # Painel esquerdo — inputs (largura fixa)
-        self.painel_esq = tk.Frame(container, bg=COR["painel"], width=320)
+        self.painel_esq = tk.Frame(container, bg=COR["painel"], width=230)
         self.painel_esq.pack(side="left", fill="y", padx=(0, 10))
         self.painel_esq.pack_propagate(False)
 
@@ -203,38 +203,45 @@ class NacaGUI:
     # PAINEL ESQUERDO — INPUTS
     # ----------------------------------------------------------
 
+    def _bind_mousewheel(self, widget):
+        widget.bind("<MouseWheel>",
+            lambda e: self._on_mousewheel(e))
+        for child in widget.winfo_children():
+            self._bind_mousewheel(child)
+        
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(-1*(event.delta//120), "units")
+
     def _cria_inputs(self):
         # Canvas com scrollbar para o painel esquerdo ser rolável
-        canvas = tk.Canvas(self.painel_esq, bg=COR["painel"],
+        self.canvas = tk.Canvas(self.painel_esq, bg=COR["painel"],
                            highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.painel_esq, orient="vertical",
-                                   command=canvas.yview)
-        self.frame_scroll = tk.Frame(canvas, bg=COR["painel"])
+                                   command=self.canvas.yview)
+        self.frame_scroll = tk.Frame(self.canvas, bg=COR["painel"])
 
         self.frame_scroll.bind("<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
 
-        canvas.create_window((0, 0), window=self.frame_scroll, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side="left", fill="both", expand=True)
+        self.canvas.create_window((0, 0), window=self.frame_scroll, anchor="nw")
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+        
 
-        canvas.bind("<MouseWheel>",
-            lambda e: canvas.yview_scroll(-1*(e.delta//120), "units"))
-
-        p = self.frame_scroll
+        scroll_lock = self.frame_scroll
 
         # Grupos de campos
         self.vars_voo = {}
-        self._cria_grupo(p, "⬡  Parâmetros de Voo", [
+        self._cria_grupo(scroll_lock, "⬡  Parâmetros de Voo", [
             ("altitude",   "Altitude (m)",         "1500"),
             ("velocity",  "Velocidade (m/s)",     "60"),
             ("target_cl",    "CL alvo",              "0.8"),
             ("chord_m",      "Corda (m)",            "1.2"),
-            ("wing_area_m2", "Área da asa (m²)",     "16.0"),
         ], self.vars_voo)
+        
 
-        frame_calc = self._frame_card(p, "⬡  Atmosfera ISA")
+        frame_calc = self._frame_card(scroll_lock, "⬡  Atmosfera ISA")
         self.label_reynolds = self._info_label(frame_calc, "Reynolds", "—")
         self.label_mach     = self._info_label(frame_calc, "Mach",     "—")
         self.label_rho      = self._info_label(frame_calc, "ρ (kg/m³)","—")
@@ -243,14 +250,14 @@ class NacaGUI:
         ).pack(fill="x", padx=10, pady=(4, 8))
 
         self.vars_busca = {}
-        self._cria_grupo(p, "⬡  Configurações da Busca", [
+        self._cria_grupo(scroll_lock, "⬡  Configurações da Busca", [
             ("cl_tolerance", "Tolerância CL (±)",       "0.01"),
             ("camber_max",    "Camber máximo (0-9)",     "6"),
             ("espessuras",    "Espessuras (ex: 8,12,15)","8,10,12,15,18"),
         ], self.vars_busca)
 
         self.vars_xfoil = {}
-        self._cria_grupo(p, "⬡  Parâmetros do XFOIL", [
+        self._cria_grupo(scroll_lock, "⬡  Parâmetros do XFOIL", [
             ("alpha_start", "Alpha início (°)",  "0"),
             ("alpha_end",   "Alpha fim (°)",     "0"),
             ("alpha_step",  "Passo alpha (°)",   "0.5"),
@@ -260,13 +267,15 @@ class NacaGUI:
         ], self.vars_xfoil)
 
         self.vars_filtros = {}
-        self._cria_grupo(p, "⬡  Filtros Físicos", [
+        self._cria_grupo(scroll_lock, "⬡  Filtros Físicos", [
             ("cd_min",  "CD mínimo (0=auto)",  "0"),
             ("eff_max", "CL/CD máx (0=auto)",  "0"),
         ], self.vars_filtros)
 
+        self._bind_mousewheel(self.frame_scroll)
+
         # Botões
-        frame_btns = tk.Frame(p, bg=COR["painel"], pady=10)
+        frame_btns = tk.Frame(scroll_lock, bg=COR["painel"], pady=10)
         frame_btns.pack(fill="x", padx=10)
 
         self.btn_calcular = ttk.Button(
@@ -280,8 +289,8 @@ class NacaGUI:
                    command=self._resetar_padrao
         ).pack(fill="x")
 
-        self.progresso = ttk.Progressbar(p, mode="indeterminate")
-        self.label_status = tk.Label(p, text="", bg=COR["painel"],
+        self.progresso = ttk.Progressbar(scroll_lock, mode="indeterminate")
+        self.label_status = tk.Label(scroll_lock, text="", bg=COR["painel"],
                                       fg=COR["texto_dim"], font=FONTE["pequena"])
         self.label_status.pack(pady=(4, 0))
 
@@ -296,6 +305,8 @@ class NacaGUI:
             ).pack(anchor="w", padx=10, pady=(6, 0))
 
             var = tk.StringVar(value=padrao)
+            if titulo == "⬡  Parâmetros de Voo":
+                var.trace_add("write", lambda *args: self._atualiza_dados())
             tk.Entry(frame, textvariable=var,
                      bg=COR["bg"], fg=COR["texto_valor"],
                      insertbackground=COR["azul"],
@@ -469,9 +480,8 @@ class NacaGUI:
             self.label_reynolds.config(text=f"{cond.reynolds:,.0f}")
             self.label_mach.config(    text=f"{cond.mach:.4f}")
             self.label_rho.config(     text=f"{cond.rho:.4f}")
-        except:
+        except Exception:
             self.label_reynolds.config(text="erro")
-
 
     # ----------------------------------------------------------
     # LÓGICA — ANÁLISE PRINCIPAL
@@ -690,18 +700,18 @@ class NacaGUI:
                 "altitude":"1500","velocity":"60","target_cl":"0.8",
                 "chord_m":"1.2"}),
             (self.vars_busca, {
-                "n_threads":"4","cl_tolerance":"0.15",
+                "cl_tolerance":"0.15",
                 "camber_max":"6","espessuras":"8,10,12,15,18"}),
             (self.vars_xfoil, {
                 "alpha_start":"0","alpha_end":"0",
-                "alpha_step":"0.5","n_panels":"240"}),
+                "alpha_step":"0.5","n_panels":"240","n_threads":"1","n_iterations":"100"}),
             (self.vars_filtros, {"cd_min":"0","eff_max":"0"}),
         ]
         for dic, vals in defaults:
             for i, v in vals.items():
                 dic[i].set(v)
         self._atualiza_dados()
-        self._limpa_resultados()
+        # self._limpa_resultados()
         self._set_status("Padrões restaurados.")
 
     def _ao_fechar(self):

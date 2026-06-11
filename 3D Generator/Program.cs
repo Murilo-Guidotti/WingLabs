@@ -11,8 +11,6 @@ using Plotter;
 string datpath = "../../../../output/naca_6512.dat";
 DatParser.ShowAllDatCoordinates(DatParser.ReadDatFile(datpath));
 
+Library.Go(1f, genPlot.Run);
 
-Library.Go(1f, () => genPlot.Run(datpath));
-
-// After you close the viewer, the application exits.
-
+// After you close the viewer, the application exits
