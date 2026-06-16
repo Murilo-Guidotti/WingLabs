@@ -5,7 +5,7 @@ import Main
 def run(args: tuple) -> tuple[str, dict | None]:
     code, cond, cfg, idx, total = args
 
-    x, y   = ng.generator(code)
+    x, y   = ng.generator(code, n_points=255)
     result = Main.analyzeWithXfoil(x, y, cond, nome=f"NACA{code}", cfg=cfg)
 
     status = "✓" if result else "✗"

@@ -15,7 +15,6 @@ import svgwrite
 import matplotlib.pyplot as plt
 from ambiance import Atmosphere
 from pathlib import Path
-import NacaTester
 import ScriptSender as sender
 import NacaGenerator as nc
 import Optimizer
@@ -32,7 +31,7 @@ print_lock  = threading.Lock()
 # SEÇÃO 1 — GERAÇÃO DO PERFIL NACA 4 DÍGITOS
 # ============================================================
 
-def nacaGenerator(code: str, n_points: int = 500) -> tuple[np.ndarray, np.ndarray]: 
+def nacaGenerator(code: str, n_points: int) -> tuple[np.ndarray, np.ndarray]: 
     return nc.generator(code, n_points)
 
 # ============================================================
@@ -189,7 +188,7 @@ def export_dat(x: np.ndarray, y: np.ndarray, code: str, output_dir: Path) -> Pat
     with open(dat_path, "w") as f:
         f.write(f"NACA {code}\n")
         for xi, yi in zip(x, y):
-            f.write(f"{xi:.6f}  {yi:.6f}\n")
+            f.write(f" {xi:.6f}  {yi:.6f}\n")
     return dat_path
 
 
@@ -464,7 +463,7 @@ def main():
     print(f"\n  Interpretação:")
 
     # Exports
-    x, y = nc.generator(best_code, n_points = 500)
+    x, y = nc.generator(best_code, n_points = 255)
 
     out = Path("output")
     out.mkdir(exist_ok=True)

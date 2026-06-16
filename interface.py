@@ -572,7 +572,7 @@ class NacaGUI:
 
         self._atualiza_top5(top5)
 
-        x, y = engine.nacaGenerator(best_code, n_points=500)
+        x, y = engine.nacaGenerator(best_code, n_points = 255)
         self._desenha_perfil(x, y, best_code, result)
 
 
@@ -656,7 +656,7 @@ class NacaGUI:
         code   = self.resultado_atual["code"]
         result = self.resultado_atual["result"]
         cond   = self.resultado_atual["cond"]
-        x, y   = engine.nacaGenerator(code, n_points=300)
+        x, y   = engine.nacaGenerator(code, n_points=250)
 
         extensoes    = {"svg": [("SVG","*.svg")],
                         "dat": [("DAT","*.dat")],
