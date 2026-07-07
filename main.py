@@ -17,7 +17,7 @@ from ambiance import Atmosphere
 from pathlib import Path
 import ScriptSender as sender
 import NacaGenerator as nc
-import Optimizer
+import optimizer
 import Enviroment
 
 # ============================================================
@@ -423,7 +423,7 @@ def main():
     print("\nIniciando otimização...")
     t0 = time.time()
 
-    best_code, result, top5 = Optimizer.run(cond, cfg)
+    best_code, result, top5 = optimizer.run(cond, cfg)
 
     elapsed = time.time() - t0
     print(f"  Tempo total: {elapsed:.1f}s")

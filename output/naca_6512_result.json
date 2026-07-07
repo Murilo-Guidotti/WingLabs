@@ -1,0 +1,21 @@
+{
+  "naca_code": "6512",
+  "dat_file": "naca_6512.dat",
+  "aerodynamics": {
+    "alpha_opt": 0.0,
+    "cl": 0.7622,
+    "cd": 0.00521,
+    "cm": 0.00089,
+    "efficiency": 146.29558541266795
+  },
+  "flight": {
+    "altitude": 1500,
+    "velocity": 60,
+    "reynolds": 4373439.422915204,
+    "mach": 0.17937828864287889,
+    "rho": 1.0581044626479077,
+    "mu": 1.7419589925374498e-05,
+    "chord_size": 1.2,
+    "target_cl": 0.8
+  }
+}

@@ -14,10 +14,10 @@ namespace Plotter
             Library.oViewer().SetGroupMaterial(0, "#e97bff", 0, 0.1F);
 
             Lattice lat = new();
-            Vector3 vecPrev = new(0,0,0);
             List<Coordinate> coordinates = DatParser.ReadDatFile(filePath);
+            Vector3 vecPrev = new(float.Parse(coordinates[0].X.ToString("F7", CultureInfo.InvariantCulture)), float.Parse(coordinates[0].Y.ToString("F7", CultureInfo.InvariantCulture)), 0);
 
-            for (int n = 0; n < (coordinates.Count/2); n++)
+            for (int n = 1; n < coordinates.Count; n++)
             {
                 Vector3 vecNew = new (  float.Parse(coordinates[n].X.ToString("F7", CultureInfo.InvariantCulture)),
                                         float.Parse(coordinates[n].Y.ToString("F7", CultureInfo.InvariantCulture)),

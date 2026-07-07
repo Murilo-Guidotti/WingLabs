@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # Importa o motor principal
-import Main as engine
+import main as engine
 import Enviroment as env
 import Optimizer
 

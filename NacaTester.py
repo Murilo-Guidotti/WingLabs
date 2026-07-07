@@ -1,12 +1,12 @@
 import NacaGenerator as ng
-import Main
+import main
 
 
 def run(args: tuple) -> tuple[str, dict | None]:
     code, cond, cfg, idx, total = args
 
     x, y   = ng.generator(code, n_points=255)
-    result = Main.analyzeWithXfoil(x, y, cond, nome=f"NACA{code}", cfg=cfg)
+    result = main.analyzeWithXfoil(x, y, cond, nome=f"NACA{code}", cfg=cfg)
 
     status = "✓" if result else "✗"
     print(f"  [{idx:>3}/{total}] NACA {code} {status}     ", end="\r")
