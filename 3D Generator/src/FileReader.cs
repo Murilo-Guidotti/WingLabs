@@ -26,7 +26,7 @@ namespace FileReader
                     double x = double.Parse(parts[0], CultureInfo.InvariantCulture);
                     double y = double.Parse(parts[1], CultureInfo.InvariantCulture);
 
-                    coordinates.Add(new Coordinate {X = x*100, Y = y*100});
+                    coordinates.Add(new Coordinate {X = x, Y = y});
                 }
             }
 

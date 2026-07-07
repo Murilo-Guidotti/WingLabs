@@ -1,6 +1,5 @@
 ﻿using PicoGK;
 using FileReader;
-using PicoGKTesting;
 using Plotter;
 
 // This simple call runs PicoGK with the specified task and shows the PicoGK viewer
@@ -8,9 +7,9 @@ using Plotter;
 // Library.Go( 0.1f,                   // size of each voxel in millimeters
 //             HelloWorld.Task);       // the task you want to execute
 
-string datpath = "../../../../output/naca_6512.dat";
-DatParser.ShowAllDatCoordinates(DatParser.ReadDatFile(datpath));
+// string datpath = "../../../../output/naca_6512.dat";
+// DatParser.ShowAllDatCoordinates(DatParser.ReadDatFile(datpath));
 
-Library.Go(10f, genPlot.Run);
+Library.Go(0.1f, genPlot.Run);
 
 // After you close the viewer, the application exits
