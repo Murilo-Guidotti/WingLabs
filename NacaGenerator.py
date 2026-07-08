@@ -1,6 +1,6 @@
 import numpy as np
 
-def generator(code: str, n_points: int = 500) -> tuple[np.ndarray, np.ndarray]:
+def generator(code: str, n_points: int) -> tuple[np.ndarray, np.ndarray]:
 
     M = int(code[0])    / 100      # first digit
     P = int(code[1])    / 10       # second digit

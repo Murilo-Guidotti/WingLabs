@@ -1,3 +1,5 @@
+import Main
+
 def analyze_with_xfoil(x: np.ndarray, y: np.ndarray, cond: FlightConditions,
                        nome: str = "perfil", cfg: dict | None = None) -> dict | None:
     """

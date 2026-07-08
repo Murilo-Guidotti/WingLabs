@@ -1,31 +1,44 @@
+using System.Globalization;
+
 namespace FileReader
 {
-    class readDat
+    public struct Coordinate
     {
-        public static void readDatFile(string filePath)
+        public double X;
+        public double Y;
+    } 
+
+    public class DatParser
+    {
+        public static List<Coordinate> ReadDatFile(string filePath)
         {
-            try
+            var coordinates = new List<Coordinate>();
+
+            foreach(string line in File.ReadLines(filePath))
             {
-                using (StreamReader reader = new StreamReader(filePath))
+                if (line.StartsWith("NACA", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(line))
+                continue;
+
+                string[] parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                if (parts.Length >= 2)
                 {
-                    string line;
-                    char[] x;
-                    string y = "";
-                    while ((line = reader.ReadLine()) != null)
-                    {
-                        x = line.ToArray();
-                        for(int i = 0; i < 10; i++)
-                        {
-                            // x[i] = line.ToArray().ElementAt(i);
-                        }
-                        Console.WriteLine(x);
-                    }
+                    double x = double.Parse(parts[0], CultureInfo.InvariantCulture);
+                    double y = double.Parse(parts[1], CultureInfo.InvariantCulture);
+
+                    coordinates.Add(new Coordinate {X = x, Y = y});
                 }
             }
-            catch(Exception e)
+
+            return coordinates;
+        }
+
+        public static void ShowAllDatCoordinates(List<Coordinate> coordinates)
+        {
+            foreach(var coord in coordinates)
             {
-                Console.WriteLine(e);
-            }        
+                Console.WriteLine($"X: {coord.X.ToString("F7",CultureInfo.InvariantCulture)}     Y: {coord.Y.ToString("F7",CultureInfo.InvariantCulture)}");
+            }
         }
     }
 }

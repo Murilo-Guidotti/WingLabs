@@ -3,10 +3,10 @@
   "dat_file": "naca_6512.dat",
   "aerodynamics": {
     "alpha_opt": 0.0,
-    "cl": 0.7583,
-    "cd": 0.00518,
-    "cm": 0.00088,
-    "efficiency": 146.3899613899614
+    "cl": 0.7622,
+    "cd": 0.00521,
+    "cm": 0.00089,
+    "efficiency": 146.29558541266795
   },
   "flight": {
     "altitude": 1500,
