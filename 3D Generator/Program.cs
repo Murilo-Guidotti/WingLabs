@@ -9,7 +9,12 @@ using Plotter;
 
 // string datpath = "../../../../output/naca_6512.dat";
 // DatParser.ShowAllDatCoordinates(DatParser.ReadDatFile(datpath));
-
-Library.Go(0.1f, genPlot.Run);
-
+try
+{
+    Library.Go(0.1f, genPlot.Run);
+    
+}catch(Exception ex)
+{
+    Console.WriteLine($"[ERROR] {ex.Message}");
+}
 // After you close the viewer, the application exits

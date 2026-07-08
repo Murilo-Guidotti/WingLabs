@@ -1,21 +1,17 @@
 using System.Numerics;
 using PicoGK;
 using FileReader;
-using System.Globalization;
-using System.Linq;
 
 namespace Plotter
 {
     class genPlot
     {
         const float fChordLengthMM = 100f;
-
-        // Raio do beam (espessura da linha do perfil) — deve ser bem menor que a corda
         const float fBeamRadiusMM = 0.3f;
 
         public static void Run()
         {
-            string filePath = "../../../../output/naca_6512.dat";
+            string filePath = "../output/naca_6512.dat";
             Library.oViewer().SetBackgroundColor("#cfcfcf");
             Library.oViewer().SetGroupMaterial(0, "#e97bff", 0, 0.1F);
 
@@ -69,6 +65,10 @@ namespace Plotter
 
             Library.oViewer().Add(voxLat, 0);
             Console.WriteLine("[DEBUG] Objeto adicionado ao viewer.");
+
+            Thread.Sleep(2000);
+
+            voxLat.ProjectZSlice(voxLat.oCalculateBoundingBox().vecMin.Z, 100.0f);
         }
     }
 }
