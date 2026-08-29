@@ -1,20 +1,19 @@
 ﻿using PicoGK;
 using FileReader;
 using Plotter;
+using PicoGKTesting;
 
-// This simple call runs PicoGK with the specified task and shows the PicoGK viewer
+using Leap71.ShapeKernel;
 
-// Library.Go( 0.1f,                   // size of each voxel in millimeters
-//             HelloWorld.Task);       // the task you want to execute
+string strOutputFolder = @"D:\Projetos Robotica\TCC\WingLabs\3D Generator\output";
 
-// string datpath = "../../../../output/naca_6512.dat";
-// DatParser.ShowAllDatCoordinates(DatParser.ReadDatFile(datpath));
 try
 {
-    Library.Go(0.1f, genPlot.Run);
-    
-}catch(Exception ex)
-{
-    Console.WriteLine($"[ERROR] {ex.Message}");
+    // Inicializa o PicoGK com o tamanho de voxel desejado (ex: 0.1mm) e chama um exemplo do ShapeKernel
+    PicoGK.Library.Go(0.1f, Leap71.ShapeKernelExamples.BaseLensShowCase.Task);
 }
-// After you close the viewer, the application exits
+catch (Exception e)
+{
+    Console.WriteLine("Falha ao executar a tarefa.");
+    Console.WriteLine(e.ToString());
+}

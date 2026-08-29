@@ -60,6 +60,7 @@ namespace Plotter
 
             DatParser.ShowAllDatCoordinates(coordinates);
 
+            
             Voxels voxLat = new(lat);
             Console.WriteLine("[DEBUG] Voxels criados a partir da lattice, adicionando ao viewer...");
 
@@ -68,7 +69,7 @@ namespace Plotter
 
             Thread.Sleep(2000);
 
-            voxLat.ProjectZSlice(voxLat.oCalculateBoundingBox().vecMin.Z, 100.0f);
+            voxLat.ProjectZSlice(voxLat.oCalculateBoundingBox().vecMax.Z, 10);
         }
     }
 }
