@@ -3,35 +3,42 @@ using PicoGK;
 using Leap71.ShapeKernel;
 using FileReader;
 
-namespace Plotter
+namespace WingMaker
 {
     class genPlot
     {
         public static void Run(string filePath)
         {
-            Library.oViewer().SetBackgroundColor("#6e6e6e");
-            Library.oViewer().SetGroupMaterial(0, "#a86da8", 0, 0.1F);
+            Library.oViewer().SetBackgroundColor("#010005");
+            Library.oViewer().SetGroupMaterial(0, "#ebebeb", 0.4f, 0.1F);
+
+            Console.WriteLine($"[DEBUG] Caminho do arquivo: {filePath}");
 
             // 1. Lê o .dat (coordenadas normalizadas 0..1, mesmo parser de antes)
             List<Coordinate> coordinates = DatParser.ReadDatFile(filePath);
             Console.WriteLine($"[DEBUG] Coordenadas lidas: {coordinates.Count}");
 
-            if (coordinates.Count < 3)
+            if (coordinates.Count.Equals(0))
             {
-                Console.WriteLine("Menos de 3 coordenadas — nada para desenhar.");
+                Console.WriteLine("Nenhuma coordenada lida — Verifique o arquivo, ou o caminho do arquivo.");
                 return;
             }
 
             // 2. Define as estações ao longo da envergadura (raiz e ponta, por enquanto)
-            float fSpanMM       = 1500f;
-            float fRootChordMM  = 300f;
-            float fTipChordMM   = 180f;
-            float fTipTwistDeg  = -3f; // washout típico (ponta com incidência menor)
+            float fSpanMM       = 7450.0f;
+            float fRootChordMM  = 785.0f;
+            float fTipChordMM   = 392.5f;
+            float fTipTwistDeg  = -15.0f;
+            float fWingSweepDeg = 0.0f;
+            float fWingDihedralDeg = 0.0f;
+            float fTipChanferDeg = 0.0f;
+
+            MemoryUsageDebug(); // Inicia o debug do uso de memória em segundo plano
 
             LocalFrame oRootFrame = new LocalFrame();
             LocalFrame oTipFrame  = new LocalFrame()
-                                        .oTranslate(new Vector3(0, 0, fSpanMM))
-                                        .oRotate(fTipTwistDeg * MathF.PI / 180f, Vector3.UnitZ);
+                                        .oTranslate(new Vector3(fRootChordMM / 2, 0, fSpanMM))
+                                        .oRotate(fTipTwistDeg * MathF.PI / 180f, Vector3.UnitZ).oRotate(fTipChanferDeg * MathF.PI / 180f, Vector3.UnitY);
 
             List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, fRootChordMM);
             List<Vector3> aTipSection  = avecBuildSection(coordinates, oTipFrame, fTipChordMM);
@@ -42,11 +49,29 @@ namespace Plotter
             AddCap(ref oMesh, aRootSection, bFlip: true);   // raiz olhando para -Z
             AddCap(ref oMesh, aTipSection, bFlip: false);   // ponta olhando para +Z
 
+            oMesh.SaveToStlFile("D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl");
+            Console.WriteLine($"[DEBUG] Mesh salvo em wing.stl (D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl)");
+            
             Console.WriteLine($"[DEBUG] Mesh gerado: {oMesh.nVertexCount()} vértices, {oMesh.nTriangleCount()} triângulos");
 
             Voxels voxWing = new(oMesh);
+            voxWing.voxSmoothen(1);
+
             Library.oViewer().Add(voxWing, 0);
-            Console.WriteLine("[DEBUG] Asa adicionada ao viewer.");
+            Library.oViewer().ZoomToFit();
+            
+            Console.WriteLine("[DEBUG] Asa adicionada ao viewer.\n");
+            
+        }
+
+        async static void MemoryUsageDebug()
+        {
+            await Task.Delay(2000);
+            while (true)
+            {
+                Console.Write($"\r[DEBUG] Memória Total utilizada: {Library.oLibrary().nTotalMemUsage() / 1000000} MegaBytes || Memória Voxel utilizada: {Library.oLibrary().nVoxelsMemUsage() / 1000000} MegaBytes || Memória Meshes utilizada: {Library.oLibrary().nMeshesMemUsage() / 1000} KiloBytes");
+                await Task.Delay(1000); // Loga a cada 1 segundos
+            }
         }
 
         static List<Vector3> avecBuildSection(List<Coordinate> coordinates, LocalFrame oFrame, float fChordMM)
