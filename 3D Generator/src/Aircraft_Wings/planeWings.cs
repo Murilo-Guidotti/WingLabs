@@ -14,7 +14,7 @@ namespace WingMaker
 
             Console.WriteLine($"[DEBUG] Caminho do arquivo: {filePath}");
 
-            // 1. Lê o .dat (coordenadas normalizadas 0..1, mesmo parser de antes)
+            // .Dat coordinates reader
             List<Coordinate> coordinates = DatParser.ReadDatFile(filePath);
             Console.WriteLine($"[DEBUG] Coordenadas lidas: {coordinates.Count}");
 
@@ -24,41 +24,42 @@ namespace WingMaker
                 return;
             }
 
-            // 2. Define as estações ao longo da envergadura (raiz e ponta, por enquanto)
-            float fSpanMM       = 7450.0f;
-            float fRootChordMM  = 785.0f;
-            float fTipChordMM   = 392.5f;
-            float fTipTwistDeg  = -15.0f;
-            float fWingSweepDeg = 0.0f;
-            float fWingDihedralDeg = 0.0f;
-            float fTipChanferDeg = 0.0f;
+            // Wing Parameters (all of this needs to be parameters)
+            float fSpanMM           = 7450.0f;
+            float fRootChordMM      = 1570.0f;
+            float fTipChordMM       = 784.5f;
+            float fTipTwistDeg      = -15.0f;
+            float fWingSweepDeg     = 30.0f;
+            float fWingDihedralDeg  = 0.0f;
+            float fTipChanferDeg    = 0.0f;
 
-            MemoryUsageDebug(); // Inicia o debug do uso de memória em segundo plano
-
+            // MemoryUsageDebug(); // Memory Debugger
             LocalFrame oRootFrame = new LocalFrame();
             LocalFrame oTipFrame  = new LocalFrame()
                                         .oTranslate(new Vector3(fRootChordMM / 2, 0, fSpanMM))
-                                        .oRotate(fTipTwistDeg * MathF.PI / 180f, Vector3.UnitZ).oRotate(fTipChanferDeg * MathF.PI / 180f, Vector3.UnitY);
+                                        .oRotate(fTipTwistDeg * MathF.PI / 180f, Vector3.UnitZ)
+                                        .oTranslate(new Vector3((float)Math.Tan((double) fWingSweepDeg * MathF.PI / 180f) * fSpanMM, 0, 0));
 
             List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, fRootChordMM);
             List<Vector3> aTipSection  = avecBuildSection(coordinates, oTipFrame, fTipChordMM);
 
-            // 3. Monta o mesh: casca lateral (loft) + tampas na raiz e na ponta
+            // LOFT
             Mesh oMesh = new();
             AddLoftBetweenSections(ref oMesh, aRootSection, aTipSection);
-            AddCap(ref oMesh, aRootSection, bFlip: true);   // raiz olhando para -Z
-            AddCap(ref oMesh, aTipSection, bFlip: false);   // ponta olhando para +Z
+            AddCap(ref oMesh, aRootSection, bFlip: true);
+            AddCap(ref oMesh, aTipSection, bFlip: false);
 
-            oMesh.SaveToStlFile("D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl");
+
+            // Export the mesh in STL format
+            oMesh.SaveToStlFile("D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl"); // <-- this needs to be a parameter
             Console.WriteLine($"[DEBUG] Mesh salvo em wing.stl (D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl)");
             
             Console.WriteLine($"[DEBUG] Mesh gerado: {oMesh.nVertexCount()} vértices, {oMesh.nTriangleCount()} triângulos");
 
             Voxels voxWing = new(oMesh);
-            voxWing.voxSmoothen(1);
+            // voxWing.voxSmoothen(7.5f);
 
             Library.oViewer().Add(voxWing, 0);
-            Library.oViewer().ZoomToFit();
             
             Console.WriteLine("[DEBUG] Asa adicionada ao viewer.\n");
             
@@ -70,7 +71,7 @@ namespace WingMaker
             while (true)
             {
                 Console.Write($"\r[DEBUG] Memória Total utilizada: {Library.oLibrary().nTotalMemUsage() / 1000000} MegaBytes || Memória Voxel utilizada: {Library.oLibrary().nVoxelsMemUsage() / 1000000} MegaBytes || Memória Meshes utilizada: {Library.oLibrary().nMeshesMemUsage() / 1000} KiloBytes");
-                await Task.Delay(1000); // Loga a cada 1 segundos
+                await Task.Delay(1000);
             }
         }
 
