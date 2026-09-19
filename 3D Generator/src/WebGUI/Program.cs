@@ -1,7 +1,7 @@
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://localhost:15000", "http://127.0.0.1:15000");
+builder.WebHost.UseUrls("http://localhost:20000", "http://127.0.0.1:20000");
 
 var app = builder.Build();
 
