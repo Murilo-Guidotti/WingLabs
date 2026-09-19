@@ -332,7 +332,7 @@
             };
             
             try {
-                const response = await fetch('/api/generate', {
+                const response = await fetch('http://localhost:15000/api/generate', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -344,10 +344,9 @@
                 
                 if (result.success) {
                     status.className = 'status success show';
-                    status.innerHTML = '<strong>Sucesso!</strong> Asa gerada com sucesso!<br>' +
-                        `Seções: ${result.sectionsCount}<br>` +
-                        `Tamanho por seção: ${result.sectionSize.toFixed(2)} mm<br>` +
-                        `Arquivo STL salvo em: ${result.outputPath}`;
+                    status.innerHTML = '<strong>Sucesso!</strong> Parâmetros recebidos!<br>' +
+                        `Caminho STL: ${result.outputPath}<br>` +
+                        `<strong>Próximo passo:</strong> Execute o programa principal para gerar a asa.`;
                 } else {
                     status.className = 'status error show';
                     status.innerHTML = '<strong>Erro:</strong> ' + result.error;

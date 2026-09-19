@@ -39,7 +39,7 @@ dotnet run --project WebGUI.csproj
 
 ### 2. Acessar a interface
 
-Abra o navegador e acesse: **http://localhost:5000**
+Abra o navegador e acesse: **http://localhost:15000**
 
 ### 3. Preencher os parâmetros
 
@@ -122,9 +122,9 @@ dotnet run -- --datFile="caminho/para/arquivo.dat" --span=7450 --rootChord=1570 
 
 ## Solução de problemas
 
-### Porto 5000 já está em uso
+### Porto 15000 já está em uso
 Altere o número da porta nos arquivos:
-- `Program.cs` - Linha: `builder.WebHost.UseUrls("http://localhost:5000"...`
+- `Program.cs` - Linha: `builder.WebHost.UseUrls("http://localhost:15000"...`
 - `start_webui.bat` - Mensagem de porta
 
 ### Erro de permissão (Linux)

@@ -1,13 +1,16 @@
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://localhost:5000", "http://127.0.0.1:5000");
+builder.WebHost.UseUrls("http://localhost:15000", "http://127.0.0.1:15000");
 
 var app = builder.Build();
 
 app.UseStaticFiles();
 
 app.MapGet("/", () => Results.Redirect("/index.html"));
+
+// Redirecionar para a pagina inicial se acessar a porta diretamente
+app.MapGet("", () => Results.Redirect("/index.html"));
 
 // Endpoint para verificar se o servidor está funcionando
 app.MapGet("/api/ping", () => Results.Ok(new { status = "ok", message = "WingLabs Web GUI está funcionando!" }));
