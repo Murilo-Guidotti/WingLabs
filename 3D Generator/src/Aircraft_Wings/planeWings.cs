@@ -7,7 +7,24 @@ namespace WingMaker
 {
     class genPlot
     {
+        // Metodo original para compatibilidade
         public static void Run(string filePath)
+        {
+            Run(filePath, 7450.0, 1570.0, 784.5, -15.0, 30.0, 0.0, 0.0, 500.0, "D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl");
+        }
+        
+        // Novo metodo com todos os parametros
+        public static void Run(
+            string filePath,
+            double fSpanMM = 7450.0,
+            double fRootChordMM = 1570.0,
+            double fTipChordMM = 784.5,
+            double fTipTwistDeg = -15.0,
+            double fWingSweepDeg = 30.0,
+            double fWingDihedralDeg = 0.0,
+            double fTipChanferDeg = 0.0,
+            double dTargetSectionSizeMM = 500.0,
+            string outputStlPath = "D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl")
         {
             Library.oViewer().SetBackgroundColor("#010005");
             Library.oViewer().SetGroupMaterial(0, "#ebebeb", 0.4f, 0.1F);
@@ -24,14 +41,16 @@ namespace WingMaker
                 return;
             }
 
-            // Wing Parameters (all of this needs to be parameters)
-            float   fSpanMM           = 7450.0f;
-            float   fRootChordMM      = 1570.0f;
-            float   fTipChordMM       = 784.5f;
-            float   fTipTwistDeg      = -15.0f;
-            double  fWingSweepDeg     = 30.0f;
-            float   fWingDihedralDeg  = 0.0f;
-            float   fTipChanferDeg    = 0.0f;
+            // Wing Parameters - agora passados como argumentos
+            Console.WriteLine($"[DEBUG] Span: {fSpanMM} mm");
+            Console.WriteLine($"[DEBUG] Root Chord: {fRootChordMM} mm");
+            Console.WriteLine($"[DEBUG] Tip Chord: {fTipChordMM} mm");
+            Console.WriteLine($"[DEBUG] Tip Twist: {fTipTwistDeg} deg");
+            Console.WriteLine($"[DEBUG] Wing Sweep: {fWingSweepDeg} deg");
+            Console.WriteLine($"[DEBUG] Wing Dihedral: {fWingDihedralDeg} deg");
+            Console.WriteLine($"[DEBUG] Tip Chanfer: {fTipChanferDeg} deg");
+            Console.WriteLine($"[DEBUG] Target Section Size: {dTargetSectionSizeMM} mm");
+            Console.WriteLine($"[DEBUG] Output STL: {outputStlPath}");
 
             // MemoryUsageDebug(); // Memory Debugger
             LocalFrame oRootFrame = new LocalFrame();
@@ -48,47 +67,65 @@ namespace WingMaker
             AddLoftBetweenSections(ref oMesh, aRootSection, aTipSection);
             AddCap(ref oMesh, aRootSection, bFlip: true);
             AddCap(ref oMesh, aTipSection, bFlip: false);
-            CreateSections(fSpanMM);
-
+            
+            // Chamar CreateSectionsWing com o target section size
+            List<LocalFrame> wingFrames = CreateSectionsWing(
+                fSpanMM,
+                fWingSweepDeg,
+                fTipTwistDeg,
+                dTargetSectionSizeMM
+            );
 
             // Export the mesh in STL format
-            oMesh.SaveToStlFile("D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl"); // <-- this needs to be a parameter
-            Console.WriteLine($"[DEBUG] Mesh salvo em wing.stl (D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl)");
+            oMesh.SaveToStlFile(outputStlPath);
+            Console.WriteLine($"[DEBUG] Mesh salvo em: {outputStlPath}");
             
             Console.WriteLine($"[DEBUG] Mesh gerado: {oMesh.nVertexCount()} vértices, {oMesh.nTriangleCount()} triângulos");
+            Console.WriteLine($"[DEBUG] Seções geradas: {wingFrames.Count}");
 
             // Voxels voxWing = new(oMesh);
             // voxWing.voxSmoothen(5f);
 
             // Library.oViewer().Add(voxWing, 0);
             
-            Console.WriteLine("[DEBUG] Asa adicionada ao viewer.\n");            
-        }
-
-        // Ignore this function, it's for the future if mesh division is needed
-        static void CreateSections(Mesh oMesh)
-        {
-            BBox3 bBox = new BBox3();
-            bBox = oMesh.oBoundingBox();
-            
-            float fSectionSize;
-
-            fSectionSize = (bBox.vecSize().Z / 10.0f);
-            Console.WriteLine($"[DEBUG] Tamanho de seção: {fSectionSize} mm");
-
+            Console.WriteLine("[DEBUG] Asa gerada com sucesso!\n");            
         }
 
         // This is the actual function that will create the sections of the wing, based on the parameters provided
-        static void CreateSections(float fSpanMM = 0, float fRootChordMM = 0, float fTipChordMM = 0, float fTipTwistDeg = 0, double fWingSweepDeg = 0, float fWingDihedralDeg = 0, float fTipChanferDeg = 0)
+        public static List<LocalFrame> CreateSectionsWing(double dWingSpanMM, double dWingSweepDeg, double dWingRotationDeg, double dTargetSectionSizeMM = 500)
         {
-            double fSectionSize = fSpanMM / 10.0f;
-            Console.WriteLine($"[DEBUG] Tamanho de seção: {fSectionSize} mm");
-
-            LocalFrame []oNFrame = new LocalFrame[(int) Math.Floor(fSpanMM / fSectionSize)];
-            Console.WriteLine($"[DEBUG] Quantidade de seções: {oNFrame.Length}");
+            double     dWingSectionSize;
+            double     dWingSectionRotation;
+            const int  nMinSections = 20;
+            const int  nMaxSections = 500;
+            int        nSections;
+        
+            nSections = (int) Math.Round(dWingSpanMM / dTargetSectionSizeMM);
+            nSections = (int) Math.Clamp(nSections, nMinSections, nMaxSections);
+            dWingSectionSize = dWingSpanMM / nSections;
+        
+            dWingSectionRotation = dWingRotationDeg / nSections;
+        
+            Console.WriteLine($"Número de seções: {nSections}");
+            Console.WriteLine($"Tamanho de cada seção (mm): {dWingSectionSize:N4}");
+            Console.WriteLine($"Rotação por seção (graus): {dWingSectionRotation:N4}");
+            Console.WriteLine("---");
+        
+            List<LocalFrame> lFrames = new List<LocalFrame>();
+            for (int i = 0; i <= nSections; i++) {
+        
+                double dZ = i * dWingSectionSize;
+                double dSectionRotation = i * dWingSectionRotation;
+                double dY = Math.Tan((dWingSweepDeg * Math.PI) / 180f) * dZ;
+        
+                Console.WriteLine($"Seção {i}: Z={dZ:F2}mm, Y={dY:F2}mm, Rotação={dSectionRotation:F2}°");
+        
+                LocalFrame oFrame = new LocalFrame(new Vector3(0, (float) dY, (float) dZ));
+                oFrame.oRotate(dSectionRotation, Vector3.UnitZ);
+                lFrames.Add(oFrame);
+            }
+            return lFrames;
         }
-
-        static void CreateSectionsMehs(){}
 
         async static void MemoryUsageDebug()
         {
