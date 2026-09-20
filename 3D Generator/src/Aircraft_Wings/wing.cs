@@ -43,7 +43,7 @@ namespace Plane{
                     Console.WriteLine($"Seção {i}: Z={dZ:F2}mm, Y={dY:F2}mm, Rotação={dSectionRotation:F2}°");
             
                     LocalFrame oFrame = new LocalFrame(new Vector3(0, (float) dY, (float) dZ));
-                    oFrame.oRotate(dSectionRotation, Vector3.UnitZ);
+                    oFrame.oRotate((float)dSectionRotation, Vector3.UnitZ);
                     lFrames.Add(oFrame);
                 }
             }       

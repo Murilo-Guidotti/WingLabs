@@ -24,11 +24,11 @@ app.MapPost("/api/generate", async (HttpContext context) =>
         var requestBody = await reader.ReadToEndAsync();
         
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var parameters = JsonSerializer.Deserialize<WingParameters>(requestBody, options);
+        var parameters = JsonSerializer.Deserialize<WingLabs.WebGUI.WingParameters>(requestBody, options);
         
         if (parameters == null)
         {
-            return Results.BadRequest(new GenerateResponse
+            return Results.BadRequest(new WingLabs.WebGUI.GenerateResponse
             {
                 Success = false,
                 Error = "Parametros invalidos."
@@ -38,7 +38,7 @@ app.MapPost("/api/generate", async (HttpContext context) =>
         // Validar arquivo .dat
         if (string.IsNullOrWhiteSpace(parameters.DatFilePath) || !System.IO.File.Exists(parameters.DatFilePath))
         {
-            return Results.BadRequest(new GenerateResponse
+            return Results.BadRequest(new WingLabs.WebGUI.GenerateResponse
             {
                 Success = false,
                 Error = "Arquivo .dat nao encontrado: " + parameters.DatFilePath
@@ -66,7 +66,7 @@ app.MapPost("/api/generate", async (HttpContext context) =>
         Console.WriteLine("[WEB] Output STL: " + parameters.OutputStlPath);
         
         // Retornar sucesso
-        return Results.Ok(new GenerateResponse
+        return Results.Ok(new WingLabs.WebGUI.GenerateResponse
         {
             Success = true,
             SectionsCount = 0, // Será calculado pelo programa principal
@@ -78,7 +78,7 @@ app.MapPost("/api/generate", async (HttpContext context) =>
     catch (Exception ex)
     {
         Console.WriteLine("[WEB] Erro: " + ex.Message);
-        return Results.InternalServerError(new GenerateResponse
+        return Results.InternalServerError(new WingLabs.WebGUI.GenerateResponse
         {
             Success = false,
             Error = "Erro interno: " + ex.Message
@@ -88,27 +88,29 @@ app.MapPost("/api/generate", async (HttpContext context) =>
 
 app.Run();
 
-// Classes para serializacao
-public class WingParameters
+namespace WingLabs.WebGUI
 {
-    public string DatFilePath { get; set; } = "";
-    public double WingSpanMM { get; set; } = 7450.0;
-    public double RootChordMM { get; set; } = 1570.0;
-    public double TipChordMM { get; set; } = 784.5;
-    public double TipTwistDeg { get; set; } = -15.0;
-    public double WingSweepDeg { get; set; } = 30.0;
-    public double WingDihedralDeg { get; set; } = 0.0;
-    public double TipChanferDeg { get; set; } = 0.0;
-    public double TargetSectionSizeMM { get; set; } = 500.0;
-    public string OutputStlPath { get; set; } = "output/wing.stl";
-}
+    public class WingParameters
+    {
+        public string DatFilePath { get; set; } = "";
+        public double WingSpanMM { get; set; } = 7450.0;
+        public double RootChordMM { get; set; } = 1570.0;
+        public double TipChordMM { get; set; } = 784.5;
+        public double TipTwistDeg { get; set; } = -15.0;
+        public double WingSweepDeg { get; set; } = 30.0;
+        public double WingDihedralDeg { get; set; } = 0.0;
+        public double TipChanferDeg { get; set; } = 0.0;
+        public double TargetSectionSizeMM { get; set; } = 500.0;
+        public string OutputStlPath { get; set; } = "output/wing.stl";
+    }
 
-public class GenerateResponse
-{
-    public bool Success { get; set; }
-    public string? Error { get; set; }
-    public string? Message { get; set; }
-    public int SectionsCount { get; set; }
-    public double SectionSize { get; set; }
-    public string? OutputPath { get; set; }
+    public class GenerateResponse
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public string? Message { get; set; }
+        public int SectionsCount { get; set; }
+        public double SectionSize { get; set; }
+        public string? OutputPath { get; set; }
+    }
 }

@@ -55,12 +55,12 @@ namespace WingMaker
             // MemoryUsageDebug(); // Memory Debugger
             LocalFrame oRootFrame = new LocalFrame();
             LocalFrame oTipFrame  = new LocalFrame()
-                                        .oTranslate(new Vector3(fRootChordMM / 2, 0, fSpanMM))
+                                        .oTranslate(new Vector3((float)(fRootChordMM / 2), 0, (float)fSpanMM))
                                         .oRotate((float) (fTipTwistDeg * Math.PI / 180f), Vector3.UnitZ)
-                                        .oTranslate(new Vector3((float) Math.Tan(fWingSweepDeg * Math.PI / 180.0f) * fSpanMM, 0, 0));
+                                        .oTranslate(new Vector3((float)(Math.Tan(fWingSweepDeg * Math.PI / 180.0f) * fSpanMM), 0, 0));
 
-            List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, fRootChordMM);
-            List<Vector3> aTipSection  = avecBuildSection(coordinates, oTipFrame, fTipChordMM);
+            List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, (float)fRootChordMM);
+            List<Vector3> aTipSection  = avecBuildSection(coordinates, oTipFrame, (float)fTipChordMM);
 
             // LOFT
             Mesh oMesh = new();
@@ -121,7 +121,7 @@ namespace WingMaker
                 Console.WriteLine($"Seção {i}: Z={dZ:F2}mm, Y={dY:F2}mm, Rotação={dSectionRotation:F2}°");
         
                 LocalFrame oFrame = new LocalFrame(new Vector3(0, (float) dY, (float) dZ));
-                oFrame.oRotate(dSectionRotation, Vector3.UnitZ);
+                oFrame.oRotate((float)dSectionRotation, Vector3.UnitZ);
                 lFrames.Add(oFrame);
             }
             return lFrames;
