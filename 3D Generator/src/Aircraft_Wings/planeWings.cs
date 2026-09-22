@@ -28,9 +28,9 @@ namespace WingMaker
             double      dSpanMM           = 7450.0f;
             double      dRootChordMM      = 1570.0f;
             double      dTipChordMM       = 784.5f;
-            double      dTipTwistDeg      = -15.0f;
-            double      dWingSweepDeg     = 30.0f;
-            double      dWingDihedralDeg  = 0.0f;
+            double      dTipTwistDeg      = -30.0f;
+            double      dWingSweepDeg     = 60.0f;
+            double      dWingDihedralDeg  = 45.0f;
             double      dTipChanferDeg    = 0.0f;
 
             // MemoryUsageDebug(); // Memory Debugger
@@ -52,8 +52,8 @@ namespace WingMaker
 
 
             // Export the mesh in STL format
-            oMesh.SaveToStlFile("D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl"); // <-- this needs to be a parameter
-            Console.WriteLine($"[DEBUG] Mesh salvo em wing.stl (D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl)");
+            oMesh.SaveToStlFile("C:/Users/ALUNO/Downloads/software/wing/WingLabs/output/wing2.stl"); // <-- this needs to be a parameter
+            Console.WriteLine($"[DEBUG] Mesh salvo em wing.stl (C:/Users/ALUNO/Downloads/software/wing/WingLabs/output)");
             
             Console.WriteLine($"[DEBUG] Mesh gerado: {oMesh.nVertexCount()} vértices, {oMesh.nTriangleCount()} triângulos");
 
@@ -106,11 +106,7 @@ namespace WingMaker
                                             (float) Math.Tan(dDihedralDeg * Math.PI / 180.0f) * (float) dSpanMM,
                                             (float) dSectionSize))
                                         .oRotate((float) (dTwistDeg * Math.PI / 180f), Vector3.UnitZ);
-;
-
             }
-
-
         }
 
         static void CreateSectionsMesh(){}

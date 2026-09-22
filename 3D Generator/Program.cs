@@ -1,7 +1,7 @@
 ﻿using PicoGK;
 using Plotter;
 
-string filePath = "D:\\Projetos Robotica\\TCC\\WingLabs\\output\\naca_6512.dat";
+string filePath = "C:/Users/ALUNO/Downloads/software/wing/WingLabs/output/naca_6512.dat";
 
 try
 {
