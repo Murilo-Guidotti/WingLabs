@@ -106,8 +106,8 @@ namespace WingMaker
                                             (float) Math.Tan(dDihedralDeg * Math.PI / 180.0f) * (float) dSpanMM,
                                             (float) dSectionSize))
                                         .oRotate((float) (dTwistDeg * Math.PI / 180f), Vector3.UnitZ);
-
-                Console.WriteLine($"X: {oFrame.vecGetLocalX} || Y: {oFrame.vecGetLocalY} || Z {oFrame.vecGetLocalZ} || Position: {oFrame.vecGetPosition}");
+                oFrame.vecGetLocalX().ToString();
+                Console.WriteLine($"X: {float.Parse(oFrame.vecGetLocalX().ToString())} || Y: {oFrame.vecGetLocalY().ToString()} || Z {oFrame.vecGetLocalZ().ToString()} || Position: {oFrame.vecGetPosition().ToString()}");
             }
         }
 
