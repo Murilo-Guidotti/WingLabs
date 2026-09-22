@@ -25,30 +25,30 @@ namespace WingMaker
             }
 
             // Wing Parameters (all of this needs to be parameters)
-            float   fSpanMM           = 7450.0f;
-            float   fRootChordMM      = 1570.0f;
-            float   fTipChordMM       = 784.5f;
-            float   fTipTwistDeg      = -15.0f;
-            double  fWingSweepDeg     = 30.0f;
-            float   fWingDihedralDeg  = 0.0f;
-            float   fTipChanferDeg    = 0.0f;
+            double      dSpanMM           = 7450.0f;
+            double      dRootChordMM      = 1570.0f;
+            double      dTipChordMM       = 784.5f;
+            double      dTipTwistDeg      = -15.0f;
+            double      dWingSweepDeg     = 30.0f;
+            double      dWingDihedralDeg  = 0.0f;
+            double      dTipChanferDeg    = 0.0f;
 
             // MemoryUsageDebug(); // Memory Debugger
             LocalFrame oRootFrame = new LocalFrame();
             LocalFrame oTipFrame  = new LocalFrame()
-                                        .oTranslate(new Vector3(fRootChordMM / 2, 0, fSpanMM))
-                                        .oRotate((float) (fTipTwistDeg * Math.PI / 180f), Vector3.UnitZ)
-                                        .oTranslate(new Vector3((float) Math.Tan(fWingSweepDeg * Math.PI / 180.0f) * fSpanMM, 0, 0));
+                                        .oTranslate(new Vector3((float) dRootChordMM / 2, 0, (float) dSpanMM))
+                                        .oRotate((float) (dTipTwistDeg * Math.PI / 180f), Vector3.UnitZ)
+                                        .oTranslate(new Vector3((float) Math.Tan(dWingSweepDeg * Math.PI / 180.0f) * (float) dSpanMM, 0, 0));
 
-            List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, fRootChordMM);
-            List<Vector3> aTipSection  = avecBuildSection(coordinates, oTipFrame, fTipChordMM);
+            List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, dRootChordMM);
+            List<Vector3> aTipSection  = avecBuildSection(coordinates, oTipFrame, dTipChordMM);
 
             // LOFT
             Mesh oMesh = new();
             AddLoftBetweenSections(ref oMesh, aRootSection, aTipSection);
             AddCap(ref oMesh, aRootSection, bFlip: true);
             AddCap(ref oMesh, aTipSection, bFlip: false);
-            CreateSections(fSpanMM);
+            CreateSections(dSpanMM);
 
 
             // Export the mesh in STL format
@@ -57,10 +57,10 @@ namespace WingMaker
             
             Console.WriteLine($"[DEBUG] Mesh gerado: {oMesh.nVertexCount()} vértices, {oMesh.nTriangleCount()} triângulos");
 
-            // Voxels voxWing = new(oMesh);
-            // voxWing.voxSmoothen(5f);
+            Voxels voxWing = new(oMesh);
+            voxWing.voxSmoothen(5f);
 
-            // Library.oViewer().Add(voxWing, 0);
+            Library.oViewer().Add(voxWing, 0);
             
             Console.WriteLine("[DEBUG] Asa adicionada ao viewer.\n");            
         }
@@ -79,16 +79,41 @@ namespace WingMaker
         }
 
         // This is the actual function that will create the sections of the wing, based on the parameters provided
-        static void CreateSections(float fSpanMM = 0, float fRootChordMM = 0, float fTipChordMM = 0, float fTipTwistDeg = 0, double fWingSweepDeg = 0, float fWingDihedralDeg = 0, float fTipChanferDeg = 0)
+        static void CreateSections(double dSpanMM = 0, double dTwistDeg = 0, double dSweepDeg = 0, double dDihedralDeg = 0, double dTargetSectionSizeMM = 500)
         {
-            double fSectionSize = fSpanMM / 10.0f;
-            Console.WriteLine($"[DEBUG] Tamanho de seção: {fSectionSize} mm");
+            const int nMinSections = 2;
+            const int nMaxSections = 200;
+            int nSections;
+            double dSectionSize;
 
-            LocalFrame []oNFrame = new LocalFrame[(int) Math.Floor(fSpanMM / fSectionSize)];
-            Console.WriteLine($"[DEBUG] Quantidade de seções: {oNFrame.Length}");
+
+            nSections = (int) Math.Round(dSpanMM / dTargetSectionSizeMM);
+            nSections = Math.Clamp(nSections, nMinSections, nMaxSections);
+            dSectionSize = dSpanMM / nSections;
+
+            int nTwist      = (int) Math.Round(dTwistDeg / nSections);
+            int nSweep      = (int) Math.Round(dSweepDeg / nSections);
+            int nDihedral   = (int) Math.Round(dDihedralDeg / nSections);
+
+            List<LocalFrame> lFrames = new List<LocalFrame>();
+            lFrames.Add(new LocalFrame(new Vector3(0,0,0)));
+
+            for(int i = 1; i < nSections; i++)
+            {
+                LocalFrame oFrame = new LocalFrame()
+                                        .oTranslate(new Vector3(
+                                            (float) Math.Tan(dSweepDeg * Math.PI / 180.0f) * (float) dSpanMM,
+                                            (float) Math.Tan(dDihedralDeg * Math.PI / 180.0f) * (float) dSpanMM,
+                                            (float) dSectionSize))
+                                        .oRotate((float) (dTwistDeg * Math.PI / 180f), Vector3.UnitZ);
+;
+
+            }
+
+
         }
 
-        static void CreateSectionsMehs(){}
+        static void CreateSectionsMesh(){}
 
         async static void MemoryUsageDebug()
         {
@@ -100,13 +125,13 @@ namespace WingMaker
             }
         }
 
-        static List<Vector3> avecBuildSection(List<Coordinate> coordinates, LocalFrame oFrame, float fChordMM)
+        static List<Vector3> avecBuildSection(List<Coordinate> coordinates, LocalFrame oFrame, double dChordMM)
         {
             List<Vector3> avec = new();
             foreach (var c in coordinates)
             {
-                float x = (float)c.X * fChordMM;
-                float y = (float)c.Y * fChordMM;
+                float x = (float)c.X * (float)dChordMM;
+                float y = (float)c.Y * (float)dChordMM;
 
                 Vector3 vec = oFrame.vecGetPosition()
                             + x * oFrame.vecGetLocalX()

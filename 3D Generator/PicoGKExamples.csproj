@@ -10,5 +10,8 @@
   <ItemGroup>
     <PackageReference Include="PicoGK" Version="2.3.0" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LEAP71_ShapeKernel\LEAP71_ShapeKernel.csproj" />
+  </ItemGroup>
 
 </Project>
