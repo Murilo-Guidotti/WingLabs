@@ -28,7 +28,7 @@ namespace WingMaker
             double      dSpanMM           = 7450.0f;
             double      dRootChordMM      = 1570.0f;
             double      dTipChordMM       = 784.5f;
-            double      dTipTwistDeg      = -30.0f;
+            double      dWingTwistDeg      = -30.0f;
             double      dWingSweepDeg     = 60.0f;
             double      dWingDihedralDeg  = 45.0f;
             double      dTipChanferDeg    = 0.0f;
@@ -37,7 +37,7 @@ namespace WingMaker
             LocalFrame oRootFrame = new LocalFrame();
             LocalFrame oTipFrame  = new LocalFrame()
                                         .oTranslate(new Vector3((float) dRootChordMM / 2, 0, (float) dSpanMM))
-                                        .oRotate((float) (dTipTwistDeg * Math.PI / 180f), Vector3.UnitZ)
+                                        .oRotate((float) (dWingTwistDeg * Math.PI / 180f), Vector3.UnitZ)
                                         .oTranslate(new Vector3((float) Math.Tan(dWingSweepDeg * Math.PI / 180.0f) * (float) dSpanMM, 0, 0));
 
             List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, dRootChordMM);
@@ -48,7 +48,7 @@ namespace WingMaker
             AddLoftBetweenSections(ref oMesh, aRootSection, aTipSection);
             AddCap(ref oMesh, aRootSection, bFlip: true);
             AddCap(ref oMesh, aTipSection, bFlip: false);
-            CreateSections(dSpanMM);
+            CreateSections(dSpanMM, dWingTwistDeg, dWingSweepDeg, dWingDihedralDeg);
 
 
             // Export the mesh in STL format
@@ -106,6 +106,8 @@ namespace WingMaker
                                             (float) Math.Tan(dDihedralDeg * Math.PI / 180.0f) * (float) dSpanMM,
                                             (float) dSectionSize))
                                         .oRotate((float) (dTwistDeg * Math.PI / 180f), Vector3.UnitZ);
+
+                Console.WriteLine($"X: {oFrame.vecGetLocalX} || Y: {oFrame.vecGetLocalY} || Z {oFrame.vecGetLocalZ} || Position: {oFrame.vecGetPosition}");
             }
         }
 
