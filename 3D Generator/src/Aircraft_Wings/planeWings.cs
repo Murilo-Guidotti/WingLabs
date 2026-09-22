@@ -31,7 +31,7 @@ namespace WingMaker
             double      dWingTwistDeg      = -30.0f;
             double      dWingSweepDeg     = 60.0f;
             double      dWingDihedralDeg  = 45.0f;
-            double      dTipChanferDeg    = 0.0f;
+            // double      dTipChanferDeg    = 0.0f;
 
             // MemoryUsageDebug(); // Memory Debugger
             LocalFrame oRootFrame = new LocalFrame();
@@ -91,9 +91,9 @@ namespace WingMaker
             nSections = Math.Clamp(nSections, nMinSections, nMaxSections);
             dSectionSize = dSpanMM / nSections;
 
-            int nTwist      = (int) Math.Round(dTwistDeg / nSections);
-            int nSweep      = (int) Math.Round(dSweepDeg / nSections);
-            int nDihedral   = (int) Math.Round(dDihedralDeg / nSections);
+            double dTwist       = dTwistDeg / nSections;
+            double dSweep       = dSweepDeg / nSections;
+            double dDihedral    = dDihedralDeg / nSections;
 
             List<LocalFrame> lFrames = new List<LocalFrame>();
             lFrames.Add(new LocalFrame(new Vector3(0,0,0)));
@@ -102,12 +102,12 @@ namespace WingMaker
             {
                 LocalFrame oFrame = new LocalFrame()
                                         .oTranslate(new Vector3(
-                                            (float) Math.Tan(dSweepDeg * Math.PI / 180.0f) * (float) dSpanMM,
-                                            (float) Math.Tan(dDihedralDeg * Math.PI / 180.0f) * (float) dSpanMM,
+                                            (float) Math.Tan((dSweep * nSections)  * Math.PI / 180.0f) * (float) dSpanMM,
+                                            (float) Math.Tan((dDihedral * nSections) * Math.PI / 180.0f) * (float) dSpanMM,
                                             (float) dSectionSize))
-                                        .oRotate((float) (dTwistDeg * Math.PI / 180f), Vector3.UnitZ);
-                oFrame.vecGetLocalX().ToString();
-                Console.WriteLine($"X: {float.Parse(oFrame.vecGetLocalX().ToString())} || Y: {oFrame.vecGetLocalY().ToString()} || Z {oFrame.vecGetLocalZ().ToString()} || Position: {oFrame.vecGetPosition().ToString()}");
+                                        .oRotate((float) ((dTwist * nSections) * Math.PI / 180f), Vector3.UnitZ);
+                
+                Console.WriteLine($"X: {oFrame.vecGetLocalX().ToString()} || Y: {oFrame.vecGetLocalY().ToString()} || Z {oFrame.vecGetLocalZ().ToString()} || Position: {oFrame.vecGetPosition().ToString()}");
             }
         }
 
