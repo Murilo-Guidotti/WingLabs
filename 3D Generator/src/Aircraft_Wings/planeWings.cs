@@ -40,6 +40,10 @@ namespace WingMaker
                                         .oRotate((float) (dWingTwistDeg * Math.PI / 180f), Vector3.UnitZ)
                                         .oTranslate(new Vector3((float) Math.Tan(dWingSweepDeg * Math.PI / 180.0f) * (float) dSpanMM, 0, 0));
 
+            List<LocalFrame> lFrames = CreateSections(dSpanMM, dWingTwistDeg, dWingSweepDeg, dWingDihedralDeg);
+            oRootFrame = lFrames[0];
+            oTipFrame = lFrames[^1];
+
             List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, dRootChordMM);
             List<Vector3> aTipSection  = avecBuildSection(coordinates, oTipFrame, dTipChordMM);
 
@@ -48,8 +52,10 @@ namespace WingMaker
             AddLoftBetweenSections(ref oMesh, aRootSection, aTipSection);
             AddCap(ref oMesh, aRootSection, bFlip: true);
             AddCap(ref oMesh, aTipSection, bFlip: false);
-            CreateSections(dSpanMM, dWingTwistDeg, dWingSweepDeg, dWingDihedralDeg);
 
+            
+
+            
 
             // Export the mesh in STL format
             oMesh.SaveToStlFile("C:/Users/ALUNO/Downloads/software/wing/WingLabs/output/wing2.stl"); // <-- this needs to be a parameter
@@ -79,12 +85,12 @@ namespace WingMaker
         }
 
         // This is the actual function that will create the sections of the wing, based on the parameters provided
-        static void CreateSections(double dSpanMM = 0, double dTwistDeg = 0, double dSweepDeg = 0, double dDihedralDeg = 0, double dTargetSectionSizeMM = 500)
+        static List<LocalFrame> CreateSections(double dSpanMM = 0, double dTwistDeg = 0, double dSweepDeg = 0, double dDihedralDeg = 0, double dTargetSectionSizeMM = 500)
         {
-            const int nMinSections = 2;
-            const int nMaxSections = 200;
-            int nSections;
-            double dSectionSize;
+            const int   nMinSections = 2;
+            const int   nMaxSections = 200;
+            int         nSections;
+            double      dSectionSize;
 
 
             nSections = (int) Math.Round(dSpanMM / dTargetSectionSizeMM);
@@ -109,6 +115,8 @@ namespace WingMaker
                 
                 Console.WriteLine($"X: {oFrame.vecGetLocalX().ToString()} || Y: {oFrame.vecGetLocalY().ToString()} || Z {oFrame.vecGetLocalZ().ToString()} || Position: {oFrame.vecGetPosition().ToString()}");
             }
+
+            return lFrames;
         }
 
         static void CreateSectionsMesh(){}
