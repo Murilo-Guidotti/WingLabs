@@ -16,13 +16,13 @@ namespace WingMaker
         // Novo metodo com todos os parametros
         public static void Run(
             string filePath,
-            double fSpanMM = 7450.0,
-            double fRootChordMM = 1570.0,
-            double fTipChordMM = 784.5,
-            double fTipTwistDeg = -15.0,
-            double fWingSweepDeg = 30.0,
-            double fWingDihedralDeg = 0.0,
-            double fTipChanferDeg = 0.0,
+            double dSpanMM = 7450.0,
+            double dRootChordMM = 1570.0,
+            double dTipChordMM = 784.5,
+            double dTipTwistDeg = -15.0,
+            double dWingSweepDeg = 30.0,
+            double dWingDihedralDeg = 0.0,
+            double dTipChanferDeg = 0.0,
             double dTargetSectionSizeMM = 500.0,
             string outputStlPath = "D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing.stl")
         {
@@ -42,51 +42,50 @@ namespace WingMaker
             }
 
             // Wing Parameters - agora passados como argumentos
-            Console.WriteLine($"[DEBUG] Span: {fSpanMM} mm");
-            Console.WriteLine($"[DEBUG] Root Chord: {fRootChordMM} mm");
-            Console.WriteLine($"[DEBUG] Tip Chord: {fTipChordMM} mm");
-            Console.WriteLine($"[DEBUG] Tip Twist: {fTipTwistDeg} deg");
-            Console.WriteLine($"[DEBUG] Wing Sweep: {fWingSweepDeg} deg");
-            Console.WriteLine($"[DEBUG] Wing Dihedral: {fWingDihedralDeg} deg");
-            Console.WriteLine($"[DEBUG] Tip Chanfer: {fTipChanferDeg} deg");
+            Console.WriteLine($"[DEBUG] Span: {dSpanMM} mm");
+            Console.WriteLine($"[DEBUG] Root Chord: {dRootChordMM} mm");
+            Console.WriteLine($"[DEBUG] Tip Chord: {dTipChordMM} mm");
+            Console.WriteLine($"[DEBUG] Tip Twist: {dTipTwistDeg} deg");
+            Console.WriteLine($"[DEBUG] Wing Sweep: {dWingSweepDeg} deg");
+            Console.WriteLine($"[DEBUG] Wing Dihedral: {dWingDihedralDeg} deg");
+            Console.WriteLine($"[DEBUG] Tip Chanfer: {dTipChanferDeg} deg");
             Console.WriteLine($"[DEBUG] Target Section Size: {dTargetSectionSizeMM} mm");
             Console.WriteLine($"[DEBUG] Output STL: {outputStlPath}");
 
             // MemoryUsageDebug(); // Memory Debugger
             LocalFrame oRootFrame = new LocalFrame();
             LocalFrame oTipFrame  = new LocalFrame()
-                                        .oTranslate(new Vector3((float)(fRootChordMM / 2), 0, (float)fSpanMM))
-                                        .oRotate((float) (fTipTwistDeg * Math.PI / 180f), Vector3.UnitZ)
-                                        .oTranslate(new Vector3((float)(Math.Tan(fWingSweepDeg * Math.PI / 180.0f) * fSpanMM), 0, 0));
-
-            List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, (float)fRootChordMM);
-            List<Vector3> aTipSection  = avecBuildSection(coordinates, oTipFrame, (float)fTipChordMM);
+                                        .oTranslate(new Vector3((float)(dRootChordMM / 2), 0, (float)dSpanMM))
+                                        .oRotate((float) (dTipTwistDeg * Math.PI / 180f), Vector3.UnitZ)
+                                        .oTranslate(new Vector3((float)(Math.Tan(dWingSweepDeg * Math.PI / 180.0f) * dSpanMM), 0, 0));
+            
+            List<LocalFrame> lFrames = CreateSectionsWing(dSpanMM, dWingSweepDeg, dTipTwistDeg, dTargetSectionSizeMM);
+            oRootFrame = lFrames[0];
+            oTipFrame = lFrames[^1];
+            List<Vector3> aRootSection = avecBuildSection(coordinates, oRootFrame, dRootChordMM);
+            List<Vector3> aTipSection  = avecBuildSection(coordinates, oTipFrame, dTipChordMM);
 
             // LOFT
             Mesh oMesh = new();
             AddLoftBetweenSections(ref oMesh, aRootSection, aTipSection);
             AddCap(ref oMesh, aRootSection, bFlip: true);
             AddCap(ref oMesh, aTipSection, bFlip: false);
+
             
-            // Chamar CreateSectionsWing com o target section size
-            List<LocalFrame> wingFrames = CreateSectionsWing(
-                fSpanMM,
-                fWingSweepDeg,
-                fTipTwistDeg,
-                dTargetSectionSizeMM
-            );
+
+            
 
             // Export the mesh in STL format
             oMesh.SaveToStlFile(outputStlPath);
             Console.WriteLine($"[DEBUG] Mesh salvo em: {outputStlPath}");
             
             Console.WriteLine($"[DEBUG] Mesh gerado: {oMesh.nVertexCount()} vértices, {oMesh.nTriangleCount()} triângulos");
-            Console.WriteLine($"[DEBUG] Seções geradas: {wingFrames.Count}");
+            Console.WriteLine($"[DEBUG] Seções geradas: {lFrames.Count}");
 
-            // Voxels voxWing = new(oMesh);
-            // voxWing.voxSmoothen(5f);
+            Voxels voxWing = new(oMesh);
+            voxWing.voxSmoothen(5f);
 
-            // Library.oViewer().Add(voxWing, 0);
+            Library.oViewer().Add(voxWing, 0);
             
             Console.WriteLine("[DEBUG] Asa gerada com sucesso!\n");            
         }
@@ -137,13 +136,13 @@ namespace WingMaker
             }
         }
 
-        static List<Vector3> avecBuildSection(List<Coordinate> coordinates, LocalFrame oFrame, float fChordMM)
+        static List<Vector3> avecBuildSection(List<Coordinate> coordinates, LocalFrame oFrame, double dChordMM)
         {
             List<Vector3> avec = new();
             foreach (var c in coordinates)
             {
-                float x = (float)c.X * fChordMM;
-                float y = (float)c.Y * fChordMM;
+                float x = (float)c.X * (float)dChordMM;
+                float y = (float)c.Y * (float)dChordMM;
 
                 Vector3 vec = oFrame.vecGetPosition()
                             + x * oFrame.vecGetLocalX()
