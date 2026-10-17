@@ -17,7 +17,7 @@ from ambiance import Atmosphere
 from pathlib import Path
 import ScriptSender as sender
 import NacaGenerator as nc
-import Optimizer
+import optimizer
 import Enviroment
 
 # ============================================================
@@ -31,7 +31,7 @@ print_lock  = threading.Lock()
 # SEÇÃO 1 — GERAÇÃO DO PERFIL NACA 4 DÍGITOS
 # ============================================================
 
-def nacaGenerator(code: str, n_points: int = 500) -> tuple[np.ndarray, np.ndarray]: 
+def nacaGenerator(code: str, n_points: int) -> tuple[np.ndarray, np.ndarray]: 
     return nc.generator(code, n_points)
 
 # ============================================================
@@ -123,9 +123,10 @@ def analyzeWithXfoil(x: np.ndarray, y: np.ndarray, cond: Enviroment.FlightCondit
         if not resultados:
             return None
 
-        validos = [r for r in resultados if r["cd"] > 0 and r["cl"] > 0]
+        validos = [r for r in resultados if r["cd"] > 0 and abs(r["cl"] - cond.target_cl) <= cfg.get("cl_tolerance", 0.01)]
         if not validos:
             return None
+        
 
         melhor = max(validos, key=lambda r: r["cl"] / r["cd"])
         return {
@@ -137,56 +138,7 @@ def analyzeWithXfoil(x: np.ndarray, y: np.ndarray, cond: Enviroment.FlightCondit
         }
 
 
-# def optimize_naca(cond: Enviroment.FlightConditions, cfg: dict) -> tuple[str, dict | None, list]:
-    
-#     n_threads     = cfg.get("n_threads", 1)
-#     cl_tolerance = cfg.get("cl_tolerance", 0.01)
-#     camber_max    = cfg.get("camber_max", 6)
-#     espessuras    = cfg.get("espessuras", [8, 10, 12, 15, 18])
-#     n_ITER       = cfg.get("n_ITER", 100)
 
-#     # Limites dinâmicos calculados para exibição
-#     min_cd  = cfg.get("cd_min")  or Enviroment.min_Cd(cond.reynolds)
-#     max_efficiency = cfg.get("eff_max") or Enviroment.max_efficiency(cond.reynolds)
-
-#     codigos = []
-#     for M in range(0, camber_max + 1):
-#         for P in range(2, 8):
-#             for T in espessuras:
-#                 codigos.append(f"{M}{P}{T:02d}")
-
-#     total = len(codigos)
-#     print(f"\n  Testando {total} perfis com {n_threads} threads paralelas...\n")
-#     print(f"  Tolerância CL : ±{cl_tolerance}")
-#     print(f"  CD mínimo     : {min_cd:.4f}")
-#     print(f"  CL/CD máximo  : {max_efficiency:.1f}")
-#     print(f"  Interações    : {n_ITER:.1f}\n")
-
-#     tarefas = [
-#         (code, cond, cfg, cl_tolerance, idx + 1, total)
-#         for idx, code in enumerate(codigos)
-#     ]
-
-#     candidatos: list[tuple[str, dict]] = []
-
-
-#     with ThreadPoolExecutor(max_workers=n_threads) as executor:
-#         futures = {executor.submit(naca_tester.run, t): t for t in tarefas}
-#         for future in as_completed(futures):
-#             code, result = future.result()
-#             if result is not None:
-#                 candidatos.append((code, result))
-
-    if not candidatos:
-        return "2412", None, []
-
-    print()
-
-    candidatos.sort(key=lambda c: c[1]["efficiency"], reverse=True)
-    best_code, best_result = candidatos[0]
-    top5 = candidatos[:5]
-
-    return best_code, best_result, top5
 
 
 # ============================================================
@@ -194,7 +146,7 @@ def analyzeWithXfoil(x: np.ndarray, y: np.ndarray, cond: Enviroment.FlightCondit
 # ============================================================
 
 def export_svg(x: np.ndarray, y: np.ndarray, code: str, output_dir: Path) -> Path:
-    W, H    = 800, 300
+    W, H    = 1920, 1080
     padding = 40
 
     x_svg = x * (W - 2*padding) + padding
@@ -236,7 +188,7 @@ def export_dat(x: np.ndarray, y: np.ndarray, code: str, output_dir: Path) -> Pat
     with open(dat_path, "w") as f:
         f.write(f"NACA {code}\n")
         for xi, yi in zip(x, y):
-            f.write(f"{xi:.6f}  {yi:.6f}\n")
+            f.write(f" {xi:.6f}  {yi:.6f}\n")
     return dat_path
 
 
@@ -441,9 +393,11 @@ def coletar_parametros() -> tuple[Enviroment.FlightConditions, dict]:
     }
 
     total = (camber_max + 1) * 4 * len(espessuras)
+    total_tests = max(1, (total * n_ITER) * ((alpha_end - alpha_start) / alpha_step) // n_threads)
     print(f"\n  Total de perfis a testar : {total}")
+    print(f"\n  Total de testes : {total_tests}")
     print(f"  Threads paralelas        : {n_threads}")
-    print(f"  Estimativa de tempo      : ~{max(1, total + n_ITER // n_threads * 3)}s")
+    print(f"  Estimativa de tempo      : ~{max(1, total * n_ITER // n_threads * 3)}s")
 
     confirma = input("\n  Iniciar análise? (Enter = sim / n = não): ").strip().lower()
     if confirma == "n":
@@ -469,7 +423,7 @@ def main():
     print("\nIniciando otimização...")
     t0 = time.time()
 
-    best_code, result, top5 = Optimizer.run(cond, cfg)
+    best_code, result, top5 = optimizer.run(cond, cfg)
 
     elapsed = time.time() - t0
     print(f"  Tempo total: {elapsed:.1f}s")
@@ -509,7 +463,7 @@ def main():
     print(f"\n  Interpretação:")
 
     # Exports
-    x, y = nc.generator(best_code, n_points = 500)
+    x, y = nc.generator(best_code, n_points = 255)
 
     out = Path("output")
     out.mkdir(exist_ok=True)

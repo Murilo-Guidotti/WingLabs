@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Rodar PicoGKExamples",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/3D Generator/bin/Debug/net9.0/PicoGKExamples.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/3D Generator",
+            "console": "integratedTerminal",
+            "stopAtEntry": false
+        }
+    ]
+}

@@ -28,7 +28,7 @@ def run(cond: env.FlightConditions, cfg: dict) -> tuple[str, dict | None, list]:
     print(f"  Interações    : {n_ITER:.1f}\n")
 
     tarefas = [
-        (code, cond, cfg, cl_tolerance, idx + 1, total)
+        (code, cond, cfg, idx + 1, total)
         for idx, code in enumerate(codigos)
     ]
 

@@ -1,14 +1,14 @@
-﻿using PicoGK;
-using PicoGKExamples;
-using FileReader;
-
-// This simple call runs PicoGK with the specified task and shows the PicoGK viewer
-
-// Library.Go( 0.1f,                   // size of each voxel in millimeters
-//             HelloWorld.Task);       // the task you want to execute
-
-string datpath = "/home/zenith/Downloads/WingLabs/output/naca_6512.dat";
-readDat.readDatFile(datpath);
-
-// After you close the viewer, the application exits.
-
+﻿using System;
+using System.Text.Json;
+using PicoGK;
+using WingMaker;
+try
+{
+    // Inicializa o PicoGK com o tamanho de voxel desejado (ex: 0.1mm) e chama um exemplo do ShapeKernel
+    Library.Go(2.5f, () => WingMaker.genPlot.Run("C:/Users/ALUNO/Downloads/software/wing/WingLabs/output/naca_6512.dat"));
+}
+catch (Exception e)
+{
+    Console.WriteLine("Falha ao executar a tarefa.");
+    Console.WriteLine(e.ToString());
+}
