@@ -5,9 +5,9 @@
             "label": "build",
             "command": "dotnet",
             "type": "process",
-            "args": [
+           "args": [
                 "build",
-                "${workspaceFolder}/3D Generator/PicoGKExamples.csproj",
+                "${workspaceFolder}/3D Generator/winglabs.csproj",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary"
             ],

@@ -6,7 +6,7 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/3D Generator/bin/Debug/net9.0/PicoGKExamples.dll",
+            "program": "${workspaceFolder}/3D Generator/bin/Debug/net9.0/winglabs.dll",
             "args": [],
             "cwd": "${workspaceFolder}/3D Generator",
             "console": "integratedTerminal",
