@@ -26,8 +26,10 @@ namespace WingMaker
             double dTargetSectionSizeMM = 500.0,
             string outputStlPath = "..\\..\\..\\..\\output\\wing.stl")
         {
-            Library.oViewer().SetBackgroundColor("#070707");
-            Library.oViewer().SetGroupMaterial(0, "#fafafa", 0.4f, 0.1F);
+            // Library.oViewer().SetBackgroundColor("#070707");
+            Library.oViewer().SetBackgroundColor("#ffffff");
+            // Library.oViewer().SetGroupMaterial(0, "#ffffff", 0.0f, 0.1F);
+            Library.oViewer().SetGroupMaterial(0, "#212121", 0.4f, 0.8F);
 
             Console.WriteLine($"[DEBUG] Caminho do arquivo: {filePath}");
 
@@ -105,15 +107,15 @@ namespace WingMaker
             
 
             // Export the mesh in STL format
-            // oMesh.SaveToStlFile(outputStlPath);
-            // Console.WriteLine($"[DEBUG] Mesh salvo em: {outputStlPath}");
+            oMesh.SaveToStlFile(outputStlPath);
+            Console.WriteLine($"[DEBUG] Mesh salvo em: {outputStlPath}");
             
             // Console.WriteLine($"[DEBUG] Mesh gerado: {oMesh.nVertexCount()} vértices, {oMesh.nTriangleCount()} triângulos");
 
             // Voxels voxWing = new(oMesh);
-            // voxWing.voxSmoothen(5f);
+            voxels.voxSmoothen(25f);
 
-            // Library.oViewer().Add(voxels, 0);
+            Library.oViewer().Add(voxels, 0);
             
             Console.WriteLine("[DEBUG] Asa gerada com sucesso!\n");            
         }
@@ -142,14 +144,14 @@ namespace WingMaker
             List<LocalFrame> lFrames = new List<LocalFrame>();
             for (int i = 0; i <= nSections; i++) {
         
-                double dZ = i * dSectionSize;
-                double dX = i * dSweepPerSection;
-                double dY = i * dDihedralPerSection;
-                Console.WriteLine($"Seção {i}: Lenght={dZ:F2}mm, Sweep={dX:F2}mm, Dihedral={dY:F2}mm, Rotação={i * dSectionRotation:F2}°");
+                double Legth = i * dSectionSize;
+                double Sweep = i * dSweepPerSection;
+                double Dihedral = i * dDihedralPerSection;
+                Console.WriteLine($"Seção {i}: Lenght={Legth:F2}mm, Sweep={Sweep:F2}mm, Dihedral={Dihedral:F2}mm, Rotação={i * dSectionRotation:F2}°");
                 
-                LocalFrame oFrame = new LocalFrame().oTranslate(new Vector3((float)(dRootChordMM / 2), 0, (float) dZ))
+                LocalFrame oFrame = new LocalFrame().oTranslate(new Vector3((float) dRootChordMM / 2, 0, (float) Legth))
                         .oRotate((float) (dSectionRotation * i * Math.PI / 180f), Vector3.UnitZ)
-                        .oTranslate(new Vector3((float)dX, (float)dY, 0));
+                        .oTranslate(new Vector3((float)Sweep, (float)Dihedral, 0));
                 
                 lFrames.Add(oFrame);
             }
