@@ -1,0 +1,19 @@
+[project]
+name = "winglabs"
+version = "2.0.0"
+description = "Gerador e otimizador aerodinâmico de perfis NACA 2D (XFOIL) com pipeline autônoma 3D (PicoGK)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ambiance==1.3.1",
+    "matplotlib==3.10.9",
+    "numpy==2.4.6",
+    "pillow==12.2.0",
+    "scipy==1.17.1",
+    "svgwrite==1.4.3",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [".venv", "3D Generator", "XFOIL6.99", "output"]

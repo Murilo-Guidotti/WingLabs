@@ -1,20 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from pathlib import Path
 import json
 import math
 import shutil
 import subprocess
+import threading
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
 
+from winglabs.paths import BASE_DIR, CSPROJ_3D_PATH, DEFAULT_OUTPUT_DIR, GENERATOR_3D_DIR
 
-BASE_DIR = Path(__file__).resolve().parent
-GENERATOR_3D_DIR = BASE_DIR / "3D Generator"
-CSPROJ_3D_PATH = GENERATOR_3D_DIR / "winglabs.csproj"
-DEFAULT_OUTPUT_DIR = BASE_DIR / "output"
+__all__ = [
+    "BASE_DIR",
+    "GENERATOR_3D_DIR",
+    "CSPROJ_3D_PATH",
+    "DEFAULT_OUTPUT_DIR",
+    "Wing3DParams",
+    "write_3d_config",
+    "run_3d_generator",
+    "build_wing_preview_mesh",
+]
 
 
 @dataclass
@@ -78,7 +86,7 @@ def run_3d_generator(
 ) -> tuple[bool, Path, str]:
     """
     Executa o Módulo 2 (C# / PicoGK) de forma autônoma a partir do .dat
-    gerado pelo Módulo 1 e dos parâmetros 3D da asa.
+    gerado pelo Módulo 1 e dos parâmetros 3D da asa, transmitindo logs em tempo real.
     """
     def _log(msg: str):
         if log_callback:
@@ -120,19 +128,40 @@ def run_3d_generator(
             f"Configuração salva em {config_path}.",
         )
 
+    timed_out = False
+
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            timeout=timeout_s,
+            bufsize=1,
         )
-        if proc.stdout:
-            for line in proc.stdout.splitlines():
-                if line.strip():
-                    _log(f"[3D] {line}")
+
+        def _kill_on_timeout():
+            nonlocal timed_out
+            timed_out = True
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+        timer = threading.Timer(timeout_s, _kill_on_timeout)
+        timer.start()
+        try:
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    stripped = line.strip()
+                    if stripped:
+                        _log(f"[3D] {stripped}")
+            proc.wait()
+        finally:
+            timer.cancel()
+
+        if timed_out:
+            return False, output_stl_path, "Tempo limite excedido ao executar o Módulo 2."
 
         if proc.returncode != 0:
             return (
@@ -151,8 +180,6 @@ def run_3d_generator(
         _log(f"[Pipeline] STL gerado com sucesso: {output_stl_path.name}")
         return True, output_stl_path, f"STL gerado em: {output_stl_path}"
 
-    except subprocess.TimeoutExpired:
-        return False, output_stl_path, "Tempo limite excedido ao executar o Módulo 2."
     except Exception as exc:
         return False, output_stl_path, f"Erro ao executar o Módulo 2: {exc}"
 
@@ -165,13 +192,13 @@ def build_wing_preview_mesh(
     n_profile_pts: int = 80,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Constrói a malha 3D (X, Y, Z) da asa em tempo real usando a mesma
-    geometria de lofting de planeWings.cs para visualização imediata na UI.
+    Constrói a malha 3D (X, Y, Z) da asa em tempo real de forma 100% vetorizada
+    usando broadcasting NumPy para visualização imediata na UI.
     Retorna arrays 2D (n_sections+1, n_pts) prontos para plot_surface.
     """
     idx = np.linspace(0, len(x_airfoil) - 1, min(n_profile_pts, len(x_airfoil)), dtype=int)
-    x_p = x_airfoil[idx]
-    y_p = y_airfoil[idx]
+    x_p = x_airfoil[idx][None, :]
+    y_p = y_airfoil[idx][None, :]
 
     n_sec = max(4, int(n_sections))
     span = max(10.0, float(params.span_mm))
@@ -181,30 +208,21 @@ def build_wing_preview_mesh(
     sweep_tan = math.tan(math.radians(float(params.wing_sweep_deg)))
     dihedral_tan = math.tan(math.radians(float(params.wing_dihedral_deg)))
 
-    X_grid = np.zeros((n_sec + 1, len(x_p)))
-    Y_grid = np.zeros((n_sec + 1, len(x_p)))
-    Z_grid = np.zeros((n_sec + 1, len(x_p)))
+    t = np.linspace(0.0, 1.0, n_sec + 1)[:, None]
+    z_pos = t * span
+    chord = c_root + (c_tip - c_root) * t
+    theta = twist_rad * t
+    sweep_x = sweep_tan * z_pos
+    dihedral_y = dihedral_tan * z_pos
 
-    for i in range(n_sec + 1):
-        t = i / n_sec
-        z_pos = t * span
-        chord = c_root + (c_tip - c_root) * t
-        theta = twist_rad * t
-        sweep_x = sweep_tan * z_pos
-        dihedral_y = dihedral_tan * z_pos
+    lx = x_p * chord
+    ly = y_p * chord
 
-        # Coordenadas locais escaladas pela corda da seção
-        lx = x_p * chord
-        ly = y_p * chord
+    cos_t = np.cos(theta)
+    sin_t = np.sin(theta)
 
-        # Rotação de torção (washout) no plano XY + translação
-        cos_t = math.cos(theta)
-        sin_t = math.sin(theta)
-        wx = (c_root / 2.0) + sweep_x + (lx * cos_t - ly * sin_t)
-        wy = dihedral_y + (lx * sin_t + ly * cos_t)
-
-        X_grid[i, :] = wx
-        Y_grid[i, :] = wy
-        Z_grid[i, :] = z_pos
+    X_grid = (c_root / 2.0) + sweep_x + (lx * cos_t - ly * sin_t)
+    Y_grid = dihedral_y + (lx * sin_t + ly * cos_t)
+    Z_grid = np.broadcast_to(z_pos, X_grid.shape).copy()
 
     return X_grid, Y_grid, Z_grid

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# IDEs
+.idea/
+.vscode/
+.vs/
+
+# .NET / 3D Generator
+3D Generator/bin/
+3D Generator/obj/
+3D Generator/.vs/
+3D Generator/imgui.ini
+
+# Saídas geradas em tempo de execução
+output/*.dat
+output/*.svg
+output/*.json
+output/*.png
+output/*.stl
+!output/.gitkeep

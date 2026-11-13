@@ -27,9 +27,9 @@ namespace WingMaker
             string outputStlPath = "..\\..\\..\\..\\output\\wing.stl")
         {
             // Library.oViewer().SetBackgroundColor("#070707");
-            Library.oViewer().SetBackgroundColor("#ffffff");
+            Library.oViewer().SetBackgroundColor("#001521");
             // Library.oViewer().SetGroupMaterial(0, "#ffffff", 0.0f, 0.1F);
-            Library.oViewer().SetGroupMaterial(0, "#212121", 0.4f, 0.8F);
+            Library.oViewer().SetGroupMaterial(0, "#00349d", 0.1f, 0.8F);
 
             Console.WriteLine($"[DEBUG] Caminho do arquivo: {filePath}");
 
@@ -84,18 +84,22 @@ namespace WingMaker
             }
             
             
-            Voxels voxels = new();
-            for(int i = 0; i < lFrames.Count; i++)
+            for(int i = 1; i < lFrames.Count; i++)
             {
-                AddLoftBetweenSections(ref oMesh, sections[i==0? 0 : i-1], sections[i]);
-                AddCap(ref oMesh, sections[i], bFlip: false);
-                
+                AddLoftBetweenSections(ref oMesh, sections[i - 1], sections[i]);
                 Console.WriteLine($"[DEBUG] Seções Criadas: {i}\n");  
                 Console.WriteLine($"[DEBUG] Triângulos da Mesh: {oMesh.nTriangleCount()}\n");  
                 Console.WriteLine($"[DEBUG] Vértices da Mesh: {oMesh.nVertexCount()}\n");
-                voxels.BoolAdd(new(oMesh));
-                Library.oViewer().Add(voxels, 0);
             }
+
+            if (sections.Count >= 2)
+            {
+                AddCap(ref oMesh, sections[0], bFlip: true);
+                AddCap(ref oMesh, sections[sections.Count - 1], bFlip: false);
+            }
+
+            Voxels voxels = new(oMesh);
+            Library.oViewer().Add(voxels, 0);
 
             // // LOFT
             // AddLoftBetweenSections(ref oMesh, aRootSection, aTipSection);
