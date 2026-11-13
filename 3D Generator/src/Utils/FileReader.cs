@@ -19,13 +19,12 @@ namespace FileReader
                 if (line.StartsWith("NACA", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(line))
                 continue;
 
-                string[] parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                string[] parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
 
-                if (parts.Length >= 2)
+                if (parts.Length >= 2 &&
+                    double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double x) &&
+                    double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double y))
                 {
-                    double x = double.Parse(parts[0], CultureInfo.InvariantCulture);
-                    double y = double.Parse(parts[1], CultureInfo.InvariantCulture);
-
                     coordinates.Add(new Coordinate {X = x, Y = y});
                 }
             }

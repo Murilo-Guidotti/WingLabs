@@ -45,7 +45,7 @@ try {
     
     # Construir o comando para executar o programa principal
     # O programa principal precisa ser modificado para aceitar parametros
-    $exePath = Join-Path $PSScriptRoot "..\..\bin\Debug\net9.0\PicoGKExamples"
+    $exePath = Join-Path $PSScriptRoot "..\..\bin\Debug\net9.0\winglabs"
     
     if (-not (Test-Path $exePath)) {
         Write-Host "[ERRO] Programa principal nao encontrado em: $exePath" -ForegroundColor Red
