@@ -1,738 +1,959 @@
 # ============================================================
-# NACA Wing Profile Generator — Interface Gráfica
-# gui.py — arquivo separado do motor principal (main.py)
+# WingLabs Studio — Interface Gráfica Unificada (Módulo 1 + 2)
+# TCC — Gerador e Otimizador de Asas NACA 2D/3D
 # ============================================================
 
-# LAYOUT:
-#   ┌──────────────────────────────────────────────────┐
-#   │  painel_esq (inputs)  │  painel_dir (resultados) │
-#   │  - Parâmetros de Voo  │  - Gráfico do perfil     │
-#   │  - Config da Busca    │  - Top 5 candidatos      │
-#   │  - Filtros XFOIL      │  - Resultado final       │
-#   │  - [Calcular]         │  - Barra de progresso    │
-#   └──────────────────────────────────────────────────┘
+from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-import threading
 import queue
+import threading
+import tkinter as tk
 from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-# Importa o motor principal
-import main as engine
 import Enviroment as env
+import main as engine
 import optimizer
+import pipeline
 
 
 # ============================================================
-# PALETA DE CORES E ESTILOS
+# PALETA DE CORES & TIPOGRAFIA (DARK AEROSPACE CAD)
 # ============================================================
 
 COR = {
-    "bg":          "#1A1D23",
-    "painel":      "#22262E",
-    "card":        "#2A2F3A",
-    "borda":       "#3A3F4C",
-    "azul":        "#4A9EF5",
-    "azul_hover":  "#3A8EE5",
-    "verde":       "#4CAF82",
-    "amarelo":     "#F5B942",
-    "vermelho":    "#E05C5C",
-    "texto":       "#E8ECF4",
-    "texto_dim":   "#8A92A6",
-    "texto_valor": "#FFFFFF",
+    "bg":           "#0D1117",
+    "sidebar":      "#131922",
+    "surface":      "#18202C",
+    "card":         "#1E2836",
+    "card_hover":   "#243142",
+    "card_active":  "#172C40",
+    "borda":        "#2A3648",
+    "azul":         "#38BDF8",
+    "azul_hover":   "#0EA5E9",
+    "azul_dim":     "#1D4E6B",
+    "verde":        "#34D399",
+    "amarelo":      "#FBBF24",
+    "vermelho":     "#F87171",
+    "texto":        "#F1F5F9",
+    "texto_sec":    "#94A3B8",
+    "texto_dim":    "#64748B",
 }
 
 FONTE = {
-    "titulo":     ("Consolas", 13, "bold"),
-    "label":      ("Consolas", 9),
-    "label_bold": ("Consolas", 9, "bold"),
+    "brand":      ("Segoe UI", 14, "bold"),
+    "sub":        ("Segoe UI", 9),
+    "sec":        ("Segoe UI", 9, "bold"),
+    "label":      ("Segoe UI", 9),
     "entrada":    ("Consolas", 10),
-    "resultado":  ("Consolas", 11, "bold"),
-    "pequena":    ("Consolas", 8),
-    "botao":      ("Consolas", 10, "bold"),
+    "valor":      ("Consolas", 10, "bold"),
+    "kpi":        ("Consolas", 12, "bold"),
+    "botao":      ("Segoe UI", 10, "bold"),
+    "pequena":    ("Segoe UI", 8),
     "mono":       ("Consolas", 9),
 }
 
 
-# ============================================================
-# CLASSE PRINCIPAL DA JANELA
-# ============================================================
-
-class NacaGUI:
-
+class WingLabsGUI:
     def __init__(self, root: tk.Tk):
-        self.root = root                # Janela principal
-        self._configura_janela()        # Faz a configuração inicial da janela
-        self._aplica_tema()             # Configura o tema visual dos widgets
-        self._cria_layout()             # Cria o layout principal (painel esquerdo e direito)
+        self.root = root
+        self.fila: queue.Queue = queue.Queue()
+        self.analisando = False
+        self.gerando_3d = False
 
-        self.fila = queue.Queue()       # Queue para comunicação entre a thread de análise e a GUI.
-                                        # Threads não podem modificar widgets tkinter diretamente —
-                                        # a thread coloca resultados na fila e a GUI lê periodicamente.
-        
+        self.top4: list[tuple[str, dict]] = []
+        self.cond_atual: env.FlightConditions | None = None
+        self.cfg_atual: dict | None = None
+        self.selected_idx: int = 0
+        self.search_mode = tk.StringVar(value="payload")
+        self.auto_pipeline = tk.BooleanVar(value=True)
 
-        self.analisando      = False    # Flag para evitar múltiplas análises simultâneas
-        self.resultado_atual = None     # Guarda o resultado atual para exportação
-
+        self._configura_janela()
+        self._aplica_tema()
+        self._cria_layout()
+        self._atualiza_modo_ui()
+        self._atualiza_dados()
+        self._desenha_3d_preview("2412")
 
     # ----------------------------------------------------------
-    # CONFIGURAÇÃO INICIAL
+    # CONFIGURAÇÃO DA JANELA & TEMA
     # ----------------------------------------------------------
 
     def _configura_janela(self):
-        self.root.title("ZENITH airfoil generator — TCC")       # Título da janela
-        self.root.geometry("1200x780")                          # Tamanho inicial da janela quando aberta
-        self.root.minsize(1200, 780)                            # Tamanho mínimo da janela para evitar que o layout quebre
-        self.root.configure(bg=COR["bg"])                       # Cor de fundo da janela
-        self.root.protocol("WM_DELETE_WINDOW", self._ao_fechar) # Garante que a thread de análise seja encerrada ao fechar a janela
-
+        self.root.title("WingLabs Studio — Otimizador 2D & Gerador 3D de Asas")
+        self.root.geometry("1400x860")
+        self.root.minsize(1240, 780)
+        self.root.configure(bg=COR["bg"])
+        self.root.protocol("WM_DELETE_WINDOW", self._ao_fechar)
 
     def _aplica_tema(self):
-        
         style = ttk.Style()
-        style.theme_use("clam")                                         # Usa o tema "clam" como base, que é mais neutro e fácil de customizar
+        style.theme_use("clam")
 
-        style.configure("TFrame",        background=COR["bg"])          # Cor de fundo padrão para frames
-        style.configure("Card.TFrame",   background=COR["card"])        # Estilo para "cards" com borda
-        style.configure("Painel.TFrame", background=COR["painel"])      # Estilo para painéis laterais
+        style.configure("TFrame", background=COR["bg"])
+        style.configure("TLabel", background=COR["card"], foreground=COR["texto_sec"], font=FONTE["label"])
+        style.configure(
+            "Primary.TButton",
+            background=COR["azul"],
+            foreground="#081018",
+            font=FONTE["botao"],
+            padding=(14, 10),
+            borderwidth=0,
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", COR["azul_hover"]), ("disabled", COR["borda"])],
+            foreground=[("disabled", COR["texto_dim"])],
+        )
+        style.configure(
+            "Accent.TButton",
+            background=COR["verde"],
+            foreground="#062016",
+            font=FONTE["botao"],
+            padding=(12, 8),
+            borderwidth=0,
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", "#10B981"), ("disabled", COR["borda"])],
+            foreground=[("disabled", COR["texto_dim"])],
+        )
+        style.configure(
+            "Ghost.TButton",
+            background=COR["card"],
+            foreground=COR["texto"],
+            font=FONTE["sec"],
+            padding=(10, 7),
+            borderwidth=1,
+        )
+        style.map("Ghost.TButton", background=[("active", COR["card_hover"])])
 
-
-        style.configure("TLabel",                                       # Estilo para labels padrão
-            background=COR["card"], foreground=COR["texto_dim"],        
-            font=FONTE["label"])
-        
-        
-        style.configure("Titulo.TLabel",                                # Estilo para títulos de seções
-            background=COR["painel"], foreground=COR["azul"],
-            font=FONTE["titulo"])
-        
-        
-        style.configure("Resultado.TLabel",                             # Estilo para labels de resultados finais
-            background=COR["card"], foreground=COR["verde"],
-            font=FONTE["resultado"])
-        
-        
-        style.configure("Info.TLabel",                                  # Estilo para labels de informações calculadas (Reynolds, Mach, etc)
-            background=COR["card"], foreground=COR["texto"],
-            font=FONTE["mono"])
-        
-
-        style.configure("TEntry",                                       # Estilo para campos de entrada
-            fieldbackground=COR["bg"], foreground=COR["texto_valor"],
-            insertcolor=COR["azul"], font=FONTE["entrada"],
-            borderwidth=1, relief="flat")
-
-
-        style.configure("Calcular.TButton",                             # Estilo específico para o botão "Calcular"
-            background=COR["azul"], foreground="#FFFFFF",
-            font=FONTE["botao"], padding=(20, 10), relief="flat")
-        
-        style.map("Calcular.TButton",                                   # Efeito hover para o botão "Calcular"
-            background=[("active", COR["azul_hover"]),
-                        ("disabled", COR["borda"])])
-
-
-        style.configure("TButton",
-            background=COR["card"], foreground=COR["texto"],
-            font=FONTE["label_bold"], padding=(10, 6), relief="flat")
-        
-        style.map("TButton",
-            background=[("active", COR["borda"])])
-        
-
-        style.configure("TSeparator", background=COR["borda"])
-
-
-        style.configure("TProgressbar",
-            background=COR["azul"], troughcolor=COR["card"], thickness=4)
-
-
-        style.configure("TLabelframe",
-            background=COR["card"], foreground=COR["texto_dim"],
-            bordercolor=COR["borda"])
-        
-        
-        style.configure("TLabelframe.Label",
-            background=COR["card"], foreground=COR["azul"],
-            font=FONTE["label_bold"])
-
+        style.configure(
+            "Wing.Horizontal.TProgressbar",
+            background=COR["azul"],
+            troughcolor=COR["surface"],
+            borderwidth=0,
+            thickness=6,
+        )
 
     # ----------------------------------------------------------
     # LAYOUT PRINCIPAL
     # ----------------------------------------------------------
 
     def _cria_layout(self):
-        # Título no topo
-        frame_topo = tk.Frame(self.root, bg=COR["bg"], pady=12)
-        frame_topo.pack(fill="x", padx=20)
+        # Header superior
+        header = tk.Frame(self.root, bg=COR["sidebar"], height=56)
+        header.pack(fill="x")
+        header.pack_propagate(False)
 
-        tk.Label(frame_topo,
-            text="✈  WINGLABS AIRFOIL",
-            bg=COR["bg"], fg=COR["azul"],
-            font=("Consolas", 15, "bold")
+        left_h = tk.Frame(header, bg=COR["sidebar"])
+        left_h.pack(side="left", padx=20)
+        tk.Label(
+            left_h, text="✈  WINGLABS STUDIO",
+            bg=COR["sidebar"], fg=COR["azul"], font=FONTE["brand"]
         ).pack(side="left")
+        tk.Label(
+            left_h, text="  |  Pipeline Autônoma XFOIL 2D → PicoGK 3D",
+            bg=COR["sidebar"], fg=COR["texto_sec"], font=FONTE["sub"]
+        ).pack(side="left", pady=(2, 0))
 
-        tk.Label(frame_topo,
-            text="Gerador de Asas NACA",
-            bg=COR["bg"], fg=COR["texto_dim"],
-            font=FONTE["label"]
-        ).pack(side="left", padx=(12, 0), pady=(4, 0))
+        self.badge_pipeline = tk.Label(
+            header, text="● PRONTO", bg=COR["card"], fg=COR["verde"],
+            font=FONTE["pequena"], padx=10, pady=4
+        )
+        self.badge_pipeline.pack(side="right", padx=20)
 
-        tk.Frame(self.root, bg=COR["borda"], height=1).pack(fill="x", padx=20)
+        tk.Frame(self.root, bg=COR["borda"], height=1).pack(fill="x")
 
-        container = tk.Frame(self.root, bg=COR["bg"])
-        container.pack(fill="both", expand=True, padx=20, pady=12)
+        # Corpo principal: Sidebar esquerda + Área de trabalho direita
+        body = tk.Frame(self.root, bg=COR["bg"])
+        body.pack(fill="both", expand=True, padx=14, pady=12)
 
-        # Painel esquerdo — inputs (largura fixa)
-        self.painel_esq = tk.Frame(container, bg=COR["painel"], width=230)
-        self.painel_esq.pack(side="left", fill="y", padx=(0, 10))
-        self.painel_esq.pack_propagate(False)
+        self.sidebar = tk.Frame(body, bg=COR["sidebar"], width=340)
+        self.sidebar.pack(side="left", fill="y", padx=(0, 12))
+        self.sidebar.pack_propagate(False)
 
-        # Painel direito — resultados (expande)
-        self.painel_dir = tk.Frame(container, bg=COR["painel"])
-        self.painel_dir.pack(side="left", fill="both", expand=True)
+        self.workspace = tk.Frame(body, bg=COR["bg"])
+        self.workspace.pack(side="left", fill="both", expand=True)
 
-        self._cria_inputs()
-        self._cria_outputs()
-
+        self._cria_sidebar()
+        self._cria_workspace()
 
     # ----------------------------------------------------------
-    # PAINEL ESQUERDO — INPUTS
+    # SIDEBAR ESQUERDA (INPUTS & PIPELINE)
     # ----------------------------------------------------------
 
-    def _bind_mousewheel(self, widget):
-        widget.bind("<MouseWheel>",
-            lambda e: self._on_mousewheel(e))
-        for child in widget.winfo_children():
-            self._bind_mousewheel(child)
-        
-    def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(-1*(event.delta//120), "units")
+    def _cria_sidebar(self):
+        self.canvas_sb = tk.Canvas(self.sidebar, bg=COR["sidebar"], highlightthickness=0)
+        sb = ttk.Scrollbar(self.sidebar, orient="vertical", command=self.canvas_sb.yview)
+        self.frame_sb = tk.Frame(self.canvas_sb, bg=COR["sidebar"])
 
-    def _cria_inputs(self):
-        # Canvas com scrollbar para o painel esquerdo ser rolável
-        self.canvas = tk.Canvas(self.painel_esq, bg=COR["painel"],
-                           highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.painel_esq, orient="vertical",
-                                   command=self.canvas.yview)
-        self.frame_scroll = tk.Frame(self.canvas, bg=COR["painel"])
+        self.frame_sb.bind(
+            "<Configure>",
+            lambda e: self.canvas_sb.configure(scrollregion=self.canvas_sb.bbox("all")),
+        )
+        win_id = self.canvas_sb.create_window((0, 0), window=self.frame_sb, anchor="nw")
+        self.canvas_sb.bind(
+            "<Configure>",
+            lambda e: self.canvas_sb.itemconfigure(win_id, width=e.width),
+        )
+        self.canvas_sb.configure(yscrollcommand=sb.set)
+        self.canvas_sb.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
 
-        self.frame_scroll.bind("<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        p = self.frame_sb
 
-        self.canvas.create_window((0, 0), window=self.frame_scroll, anchor="nw")
-        self.canvas.configure(yscrollcommand=scrollbar.set)
-        self.canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
+        # Seletor de Modo de Busca
+        card_modo = self._card(p, "MODO DE OTIMIZAÇÃO (MÓDULO 1)")
+        seg = tk.Frame(card_modo, bg=COR["card"])
+        seg.pack(fill="x", padx=10, pady=(6, 8))
 
-        scroll_lock = self.frame_scroll
+        self.btn_modo_payload = tk.Button(
+            seg, text="Carga / Peso (kg)", relief="flat", cursor="hand2",
+            font=FONTE["sec"], pady=6,
+            command=lambda: self._set_modo("payload"),
+        )
+        self.btn_modo_payload.pack(side="left", fill="x", expand=True, padx=(0, 3))
 
-        # Grupos de campos
-        self.vars_voo = {}
-        self._cria_grupo(scroll_lock, "⬡  Parâmetros de Voo", [
-            ("altitude",   "Altitude (m)",         "1500"),
-            ("velocity",  "Velocidade (m/s)",     "60"),
-            ("target_cl",    "CL alvo",              "0.8"),
-            ("chord_m",      "Corda (m)",            "1.2"),
-        ], self.vars_voo)
-        
+        self.btn_modo_cl = tk.Button(
+            seg, text="CL Alvo Fixo", relief="flat", cursor="hand2",
+            font=FONTE["sec"], pady=6,
+            command=lambda: self._set_modo("target_cl"),
+        )
+        self.btn_modo_cl.pack(side="left", fill="x", expand=True, padx=(3, 0))
 
-        frame_calc = self._frame_card(scroll_lock, "⬡  Atmosfera ISA")
-        self.label_reynolds = self._info_label(frame_calc, "Reynolds", "—")
-        self.label_mach     = self._info_label(frame_calc, "Mach",     "—")
-        self.label_rho      = self._info_label(frame_calc, "ρ (kg/m³)","—")
-        ttk.Button(frame_calc, text="Atualizar",
-                   command=self._atualiza_dados
-        ).pack(fill="x", padx=10, pady=(4, 8))
+        # Cenário de Voo
+        self.vars_voo: dict[str, tk.StringVar] = {}
+        card_voo = self._card(p, "CENÁRIO DE VOO")
+        self._campo(card_voo, "altitude", "Altitude (m)", "1500", self.vars_voo, self._atualiza_dados)
+        self._campo(card_voo, "velocity", "Velocidade (m/s)", "60", self.vars_voo, self._atualiza_dados)
 
-        self.vars_busca = {}
-        self._cria_grupo(scroll_lock, "⬡  Configurações da Busca", [
-            ("cl_tolerance", "Tolerância CL (±)",       "0.01"),
-            ("camber_max",    "Camber máximo (0-9)",     "6"),
-            ("espessuras",    "Espessuras (ex: 8,12,15)","8,10,12,15,18"),
-        ], self.vars_busca)
+        self.frame_payload_input = tk.Frame(card_voo, bg=COR["card"])
+        self._campo(self.frame_payload_input, "payload_kg", "Peso da Carga / Massa (kg)", "120", self.vars_voo, self._atualiza_dados)
 
-        self.vars_xfoil = {}
-        self._cria_grupo(scroll_lock, "⬡  Parâmetros do XFOIL", [
-            ("alpha_start", "Alpha início (°)",  "0"),
-            ("alpha_end",   "Alpha fim (°)",     "0"),
-            ("alpha_step",  "Passo alpha (°)",   "0.5"),
-            ("n_panels",    "Nº de painéis",     "240"),
-            ("n_threads",     "Threads paralelas",       "1"),
-            ("n_iterations",  "Iterações",         "100")
-        ], self.vars_xfoil)
+        self.frame_cl_input = tk.Frame(card_voo, bg=COR["card"])
+        self._campo(self.frame_cl_input, "target_cl", "CL Alvo", "0.8", self.vars_voo, self._atualiza_dados)
 
-        self.vars_filtros = {}
-        self._cria_grupo(scroll_lock, "⬡  Filtros Físicos", [
-            ("cd_min",  "CD mínimo (0=auto)",  "0"),
-            ("eff_max", "CL/CD máx (0=auto)",  "0"),
-        ], self.vars_filtros)
+        # Resumo Atmosférico + CL Requerido ao vivo
+        atm_box = tk.Frame(card_voo, bg=COR["surface"], padx=8, pady=6)
+        atm_box.pack(fill="x", padx=10, pady=(6, 8))
+        self.lbl_re   = self._mini_kv(atm_box, "Reynolds", "—")
+        self.lbl_mach = self._mini_kv(atm_box, "Mach", "—")
+        self.lbl_rho  = self._mini_kv(atm_box, "ρ Ar (kg/m³)", "—")
+        self.lbl_area = self._mini_kv(atm_box, "Área Alar S", "—")
+        self.lbl_clreq = self._mini_kv(atm_box, "CL Mín. Carga", "—", COR["verde"])
 
-        self._bind_mousewheel(self.frame_scroll)
+        # Geometria 3D da Asa (Tempo real + Módulo 2)
+        self.vars_3d: dict[str, tk.StringVar] = {}
+        card_3d = self._card(p, "GEOMETRIA 3D DA ASA (MÓDULO 2)")
+        grid3d = tk.Frame(card_3d, bg=COR["card"])
+        grid3d.pack(fill="x", padx=10, pady=(4, 8))
+        grid3d.columnconfigure(0, weight=1)
+        grid3d.columnconfigure(1, weight=1)
 
-        # Botões
-        frame_btns = tk.Frame(scroll_lock, bg=COR["painel"], pady=10)
-        frame_btns.pack(fill="x", padx=10)
+        campos_3d = [
+            ("span_mm", "Envergadura (mm)", "5000", 0, 0),
+            ("root_chord_mm", "Corda Raiz (mm)", "1200", 0, 1),
+            ("tip_chord_mm", "Corda Ponta (mm)", "700", 1, 0),
+            ("wing_sweep_deg", "Enflechamento (°)", "15", 1, 1),
+            ("tip_twist_deg", "Torção Ponta (°)", "-3", 2, 0),
+            ("wing_dihedral_deg", "Diedro (°)", "2", 2, 1),
+            ("section_size_mm", "Tam. Seção (mm)", "250", 3, 0),
+            ("voxel_size_mm", "Voxel (mm)", "2.5", 3, 1),
+        ]
+        for key, label, default, r, c in campos_3d:
+            cell = tk.Frame(grid3d, bg=COR["card"])
+            cell.grid(row=r, column=c, sticky="ew", padx=3, pady=3)
+            tk.Label(cell, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w")
+            var = tk.StringVar(value=default)
+            var.trace_add("write", lambda *_: self._ao_editar_3d())
+            tk.Entry(
+                cell, textvariable=var, bg=COR["bg"], fg=COR["texto"],
+                insertbackground=COR["azul"], font=FONTE["entrada"], relief="flat", bd=4
+            ).pack(fill="x", pady=(2, 0))
+            self.vars_3d[key] = var
+
+        # Busca & XFOIL
+        self.vars_busca: dict[str, tk.StringVar] = {}
+        card_busca = self._card(p, "BUSCA & XFOIL")
+        g_b = tk.Frame(card_busca, bg=COR["card"])
+        g_b.pack(fill="x", padx=10, pady=(4, 8))
+        g_b.columnconfigure(0, weight=1)
+        g_b.columnconfigure(1, weight=1)
+
+        campos_busca = [
+            ("cl_tolerance", "Tolerância CL (±)", "0.15", 0, 0),
+            ("camber_max", "Camber Máx (0-9)", "6", 0, 1),
+            ("alpha_start", "Alpha Início (°)", "-2", 1, 0),
+            ("alpha_end", "Alpha Fim (°)", "12", 1, 1),
+            ("alpha_step", "Passo Alpha (°)", "0.5", 2, 0),
+            ("n_panels", "Painéis XFOIL", "240", 2, 1),
+            ("n_iterations", "Iterações", "100", 3, 0),
+            ("n_threads", "Threads", "4", 3, 1),
+        ]
+        for key, label, default, r, c in campos_busca:
+            cell = tk.Frame(g_b, bg=COR["card"])
+            cell.grid(row=r, column=c, sticky="ew", padx=3, pady=3)
+            tk.Label(cell, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w")
+            var = tk.StringVar(value=default)
+            tk.Entry(
+                cell, textvariable=var, bg=COR["bg"], fg=COR["texto"],
+                insertbackground=COR["azul"], font=FONTE["entrada"], relief="flat", bd=4
+            ).pack(fill="x", pady=(2, 0))
+            self.vars_busca[key] = var
+
+        self._campo(card_busca, "espessuras", "Espessuras (%)", "8,10,12,15,18", self.vars_busca)
+
+        self.vars_filtros: dict[str, tk.StringVar] = {}
+        g_f = tk.Frame(card_busca, bg=COR["card"])
+        g_f.pack(fill="x", padx=10, pady=(2, 8))
+        g_f.columnconfigure(0, weight=1)
+        g_f.columnconfigure(1, weight=1)
+        for idx_f, (key, label, default) in enumerate([("cd_min", "CD mín (0=auto)", "0"), ("eff_max", "CL/CD máx (0=auto)", "0")]):
+            cell = tk.Frame(g_f, bg=COR["card"])
+            cell.grid(row=0, column=idx_f, sticky="ew", padx=3)
+            tk.Label(cell, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w")
+            var = tk.StringVar(value=default)
+            tk.Entry(
+                cell, textvariable=var, bg=COR["bg"], fg=COR["texto"],
+                insertbackground=COR["azul"], font=FONTE["entrada"], relief="flat", bd=4
+            ).pack(fill="x", pady=(2, 0))
+            self.vars_filtros[key] = var
+
+        # Pipeline Toggle + CTA
+        act_box = tk.Frame(p, bg=COR["sidebar"], padx=10, pady=8)
+        act_box.pack(fill="x")
+
+        tk.Checkbutton(
+            act_box,
+            text="Pipeline autônoma: gerar STL 3D ao concluir",
+            variable=self.auto_pipeline,
+            bg=COR["sidebar"], fg=COR["texto_sec"],
+            selectcolor=COR["card"], activebackground=COR["sidebar"],
+            activeforeground=COR["texto"], font=FONTE["pequena"],
+        ).pack(anchor="w", pady=(0, 8))
 
         self.btn_calcular = ttk.Button(
-            frame_btns, text="▶  CALCULAR",
-            style="Calcular.TButton",
-            command=self._iniciar_analise
+            act_box, text="▶  EXECUTAR OTIMIZAÇÃO",
+            style="Primary.TButton", command=self._iniciar_analise
         )
         self.btn_calcular.pack(fill="x", pady=(0, 6))
 
-        ttk.Button(frame_btns, text="↺  Resetar padrões",
-                   command=self._resetar_padrao
+        ttk.Button(
+            act_box, text="↺  Restaurar padrões",
+            style="Ghost.TButton", command=self._resetar_padrao
         ).pack(fill="x")
 
-        self.progresso = ttk.Progressbar(scroll_lock, mode="indeterminate")
-        self.label_status = tk.Label(scroll_lock, text="", bg=COR["painel"],
-                                      fg=COR["texto_dim"], font=FONTE["pequena"])
-        self.label_status.pack(pady=(4, 0))
+        self.progresso = ttk.Progressbar(
+            act_box, style="Wing.Horizontal.TProgressbar", mode="determinate", maximum=100
+        )
+        self.progresso.pack(fill="x", pady=(8, 2))
+        self.lbl_status = tk.Label(
+            act_box, text="Pronto para iniciar.", bg=COR["sidebar"],
+            fg=COR["texto_dim"], font=FONTE["pequena"], anchor="w"
+        )
+        self.lbl_status.pack(fill="x")
 
+        self._bind_mousewheel(self.frame_sb)
 
-    def _cria_grupo(self, parent, titulo: str, campos: list, dicionario: dict):     # Cria um grupo de campos de entrada (LabelFrame com Entries).
-        
-        frame = self._frame_card(parent, titulo)
-        for key, label_txt, padrao in campos:
-            tk.Label(frame, text=label_txt,
-                     bg=COR["card"], fg=COR["texto_dim"],
-                     font=FONTE["label"]
-            ).pack(anchor="w", padx=10, pady=(6, 0))
+    # ----------------------------------------------------------
+    # WORKSPACE DIREITA (TOP 4 CARDS + 2D/3D TEMPO REAL + EXPORTS)
+    # ----------------------------------------------------------
 
-            var = tk.StringVar(value=padrao)
-            if titulo == "⬡  Parâmetros de Voo":
-                var.trace_add("write", lambda *args: self._atualiza_dados())
-            tk.Entry(frame, textvariable=var,
-                     bg=COR["bg"], fg=COR["texto_valor"],
-                     insertbackground=COR["azul"],
-                     font=FONTE["entrada"], relief="flat", bd=4
-            ).pack(fill="x", padx=10, pady=(2, 0))
-            dicionario[key] = var
+    def _cria_workspace(self):
+        w = self.workspace
 
-        tk.Frame(frame, bg=COR["card"], height=8).pack()
+        # 1) Barra Top 4 Asas Selecionáveis
+        top_hdr = tk.Frame(w, bg=COR["bg"])
+        top_hdr.pack(fill="x", pady=(0, 6))
+        tk.Label(
+            top_hdr, text="TOP 4 MELHORES ASAS — Clique em qualquer card para visualizar em tempo real e exportar",
+            bg=COR["bg"], fg=COR["texto_sec"], font=FONTE["sec"]
+        ).pack(side="left")
 
+        self.cards_frame = tk.Frame(w, bg=COR["bg"])
+        self.cards_frame.pack(fill="x", pady=(0, 10))
+        self.top4_widgets: list[dict] = []
 
-    def _frame_card(self, parent, titulo: str) -> tk.Frame:                             # Cria um card com borda e título, retorna o frame interno.
-        
-        outer = tk.Frame(parent, bg=COR["borda"], pady=1)
+        for i in range(4):
+            self.cards_frame.columnconfigure(i, weight=1)
+            card = tk.Frame(
+                self.cards_frame, bg=COR["card"], highlightbackground=COR["borda"],
+                highlightthickness=1, padx=12, pady=10, cursor="hand2"
+            )
+            card.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 6, 0))
+
+            hdr_row = tk.Frame(card, bg=COR["card"])
+            hdr_row.pack(fill="x")
+            lbl_rank = tk.Label(hdr_row, text=f"#{i+1}", bg=COR["card"], fg=COR["azul"], font=FONTE["sec"])
+            lbl_rank.pack(side="left")
+            lbl_tag = tk.Label(hdr_row, text="", bg=COR["card"], fg=COR["verde"], font=FONTE["pequena"])
+            lbl_tag.pack(side="right")
+
+            lbl_code = tk.Label(card, text="NACA —", bg=COR["card"], fg=COR["texto"], font=("Consolas", 13, "bold"))
+            lbl_code.pack(anchor="w", pady=(2, 4))
+
+            lbl_eff = tk.Label(card, text="CL/CD: —", bg=COR["card"], fg=COR["verde"], font=FONTE["valor"])
+            lbl_eff.pack(anchor="w")
+
+            lbl_meta = tk.Label(card, text="CL — | CD — | α —", bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"])
+            lbl_meta.pack(anchor="w", pady=(2, 0))
+
+            for widget in (card, hdr_row, lbl_rank, lbl_tag, lbl_code, lbl_eff, lbl_meta):
+                widget.bind("<Button-1>", lambda e, idx=i: self._selecionar_asa(idx))
+
+            self.top4_widgets.append({
+                "card": card, "hdr": hdr_row, "rank": lbl_rank,
+                "tag": lbl_tag, "code": lbl_code, "eff": lbl_eff, "meta": lbl_meta
+            })
+
+        # 2) Viewport Split: 2D Airfoil (Esquerda) + 3D Wing Real-Time (Direita)
+        view_frame = tk.Frame(w, bg=COR["bg"])
+        view_frame.pack(fill="both", expand=True, pady=(0, 10))
+        view_frame.columnconfigure(0, weight=1)
+        view_frame.columnconfigure(1, weight=1)
+        view_frame.rowconfigure(0, weight=1)
+
+        # Painel 2D
+        p2d = tk.Frame(view_frame, bg=COR["surface"], highlightbackground=COR["borda"], highlightthickness=1)
+        p2d.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        tk.Label(p2d, text="  PERFIL 2D (XFOIL)", bg=COR["surface"], fg=COR["azul"], font=FONTE["sec"], pady=6).pack(anchor="w")
+
+        self.fig_2d, self.ax_2d = plt.subplots(figsize=(5.5, 3.6), facecolor=COR["surface"])
+        self.canvas_2d = FigureCanvasTkAgg(self.fig_2d, master=p2d)
+        self.canvas_2d.get_tk_widget().pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        self._limpa_grafico_2d()
+
+        # Painel 3D
+        p3d = tk.Frame(view_frame, bg=COR["surface"], highlightbackground=COR["borda"], highlightthickness=1)
+        p3d.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        tk.Label(p3d, text="  ASA 3D EM TEMPO REAL (Arraste para girar)", bg=COR["surface"], fg=COR["azul"], font=FONTE["sec"], pady=6).pack(anchor="w")
+
+        self.fig_3d = plt.figure(figsize=(5.5, 3.6), facecolor=COR["surface"])
+        self.ax_3d = self.fig_3d.add_subplot(111, projection="3d")
+        self.canvas_3d = FigureCanvasTkAgg(self.fig_3d, master=p3d)
+        self.canvas_3d.get_tk_widget().pack(fill="both", expand=True, padx=6, pady=(0, 6))
+
+        # 3) Barra Inferior: KPIs da Asa Selecionada + Botões de Exportação & Pipeline 3D
+        bottom = tk.Frame(w, bg=COR["surface"], highlightbackground=COR["borda"], highlightthickness=1, padx=14, pady=10)
+        bottom.pack(fill="x")
+
+        kpi_bar = tk.Frame(bottom, bg=COR["surface"])
+        kpi_bar.pack(fill="x", pady=(0, 8))
+        self.kpi_labels: dict[str, tk.Label] = {}
+        for title, key in [
+            ("Asa Selecionada", "code"),
+            ("CL", "cl"),
+            ("CD", "cd"),
+            ("Eficiência CL/CD", "eff"),
+            ("Ângulo α", "alpha"),
+            ("Sustentação", "lift"),
+        ]:
+            box = tk.Frame(kpi_bar, bg=COR["card"], padx=10, pady=6)
+            box.pack(side="left", fill="x", expand=True, padx=(0, 6))
+            tk.Label(box, text=title, bg=COR["card"], fg=COR["texto_dim"], font=FONTE["pequena"]).pack(anchor="w")
+            lbl = tk.Label(box, text="—", bg=COR["card"], fg=COR["texto"], font=FONTE["kpi"])
+            lbl.pack(anchor="w")
+            self.kpi_labels[key] = lbl
+
+        btn_bar = tk.Frame(bottom, bg=COR["surface"])
+        btn_bar.pack(fill="x")
+
+        for txt, tipo in [("Exportar SVG", "svg"), ("Exportar DAT", "dat"), ("Exportar JSON", "json"), ("Exportar Pacote 2D", "all")]:
+            ttk.Button(btn_bar, text=txt, style="Ghost.TButton", command=lambda t=tipo: self._exportar(t)).pack(side="left", padx=(0, 6))
+
+        self.btn_3d = ttk.Button(
+            btn_bar, text="⚙  Gerar Asa 3D (.STL via PicoGK)",
+            style="Accent.TButton", command=self._gerar_3d_selecionada
+        )
+        self.btn_3d.pack(side="right")
+
+        # Console compacto da Pipeline
+        self.lbl_log = tk.Label(
+            bottom, text="Pipeline: selecione uma asa ou execute a otimização.",
+            bg=COR["surface"], fg=COR["texto_sec"], font=FONTE["mono"], anchor="w"
+        )
+        self.lbl_log.pack(fill="x", pady=(8, 0))
+
+    # ----------------------------------------------------------
+    # HELPERS DE UI
+    # ----------------------------------------------------------
+
+    def _card(self, parent, titulo: str) -> tk.Frame:
+        outer = tk.Frame(parent, bg=COR["borda"])
         outer.pack(fill="x", padx=10, pady=5)
         inner = tk.Frame(outer, bg=COR["card"])
         inner.pack(fill="x", padx=1, pady=1)
-        tk.Label(inner, text=titulo,
-                 bg=COR["card"], fg=COR["azul"],
-                 font=FONTE["label_bold"]
-        ).pack(anchor="w", padx=10, pady=(8, 2))
+        tk.Label(
+            inner, text=titulo, bg=COR["card"], fg=COR["azul"],
+            font=FONTE["pequena"], padx=10, pady=6
+        ).pack(anchor="w")
         tk.Frame(inner, bg=COR["borda"], height=1).pack(fill="x", padx=10)
         return inner
 
+    def _campo(self, parent, key: str, label: str, padrao: str, dic: dict, on_change=None):
+        tk.Label(parent, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w", padx=10, pady=(6, 0))
+        var = tk.StringVar(value=padrao)
+        if on_change:
+            var.trace_add("write", lambda *_: on_change())
+        tk.Entry(
+            parent, textvariable=var, bg=COR["bg"], fg=COR["texto"],
+            insertbackground=COR["azul"], font=FONTE["entrada"], relief="flat", bd=4
+        ).pack(fill="x", padx=10, pady=(2, 4))
+        dic[key] = var
 
-    def _info_label(self, parent, nome: str, valor: str) -> tk.Label:
-        """Cria linha de info calculada (nome: valor), retorna o label do valor."""
-        frame = tk.Frame(parent, bg=COR["card"])
-        frame.pack(fill="x", padx=10, pady=2)
-        tk.Label(frame, text=f"{nome}:",
-                 bg=COR["card"], fg=COR["texto_dim"],
-                 font=FONTE["label"], width=12, anchor="w"
-        ).pack(side="left")
-        lbl = tk.Label(frame, text=valor,
-                       bg=COR["card"], fg=COR["azul"],
-                       font=FONTE["label_bold"])
-        lbl.pack(side="left")
+    def _mini_kv(self, parent, k: str, v: str, color: str = COR["azul"]) -> tk.Label:
+        row = tk.Frame(parent, bg=COR["surface"])
+        row.pack(fill="x", pady=1)
+        tk.Label(row, text=f"{k}:", bg=COR["surface"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(side="left")
+        lbl = tk.Label(row, text=v, bg=COR["surface"], fg=color, font=FONTE["mono"])
+        lbl.pack(side="right")
         return lbl
 
+    def _bind_mousewheel(self, widget):
+        widget.bind("<MouseWheel>", lambda e: self.canvas_sb.yview_scroll(-1 * (e.delta // 120), "units"))
+        for child in widget.winfo_children():
+            self._bind_mousewheel(child)
+
+    def _set_modo(self, modo: str):
+        self.search_mode.set(modo)
+        self._atualiza_modo_ui()
+        self._atualiza_dados()
+
+    def _atualiza_modo_ui(self):
+        modo = self.search_mode.get()
+        if modo == "payload":
+            self.btn_modo_payload.config(bg=COR["azul"], fg="#081018")
+            self.btn_modo_cl.config(bg=COR["surface"], fg=COR["texto_sec"])
+            self.frame_cl_input.pack_forget()
+            self.frame_payload_input.pack(fill="x")
+        else:
+            self.btn_modo_cl.config(bg=COR["azul"], fg="#081018")
+            self.btn_modo_payload.config(bg=COR["surface"], fg=COR["texto_sec"])
+            self.frame_payload_input.pack_forget()
+            self.frame_cl_input.pack(fill="x")
 
     # ----------------------------------------------------------
-    # PAINEL DIREITO — OUTPUTS
+    # LEITURA DE PARÂMETROS & CÁLCULOS AO VIVO
     # ----------------------------------------------------------
 
-    def _cria_outputs(self):
-        p = self.painel_dir
-
-        # Gráfico matplotlib embutido
-        frame_grafico = tk.Frame(p, bg=COR["painel"])
-        frame_grafico.pack(fill="both", expand=True, padx=10, pady=(10, 5))
-
-        self.fig, self.ax = plt.subplots(figsize=(7, 2.8),
-                                          facecolor=COR["painel"])
-        self.ax.set_facecolor(COR["card"])
-        self._limpa_grafico()
-
-        # FigureCanvasTkAgg embute o matplotlib dentro do tkinter
-        self.canvas_fig = FigureCanvasTkAgg(self.fig, master=frame_grafico)
-        self.canvas_fig.draw()
-        self.canvas_fig.get_tk_widget().pack(fill="both", expand=True)
-
-        # Resultados
-        frame_res = tk.Frame(p, bg=COR["painel"])
-        frame_res.pack(fill="x", padx=10, pady=(0, 10))
-
-        # Top 5
-        frame_top5 = self._frame_card(frame_res, "⬡  Top candidatos")
-        self.texto_top5 = tk.Text(
-            frame_top5, bg=COR["bg"], fg=COR["texto"],
-            font=FONTE["mono"], height=7, relief="flat", bd=6,
-            state="disabled"
-        )
-        self.texto_top5.pack(fill="x", padx=10, pady=(4, 8))
-        self.texto_top5.tag_configure("header",
-            foreground=COR["texto_dim"], font=FONTE["pequena"])
-        self.texto_top5.tag_configure("melhor",
-            foreground=COR["verde"], font=("Consolas", 9, "bold"))
-        self.texto_top5.tag_configure("normal", foreground=COR["texto"])
-
-        # Resultado final
-        frame_final = tk.Frame(frame_res, bg=COR["painel"])
-        frame_final.pack(fill="x", pady=(6, 0))
-
-        frame_labels = self._frame_card(frame_final, "⬡  Melhor perfil")
-        grid = tk.Frame(frame_labels, bg=COR["card"])
-        grid.pack(fill="x", padx=10, pady=8)
-
-        self.label_naca  = self._resultado_label(grid, "Código NACA",  "—", 0)
-        self.label_cl    = self._resultado_label(grid, "CL",           "—", 1)
-        self.label_cd    = self._resultado_label(grid, "CD",           "—", 2)
-        self.label_clcd  = self._resultado_label(grid, "CL/CD",        "—", 3)
-        self.label_alpha = self._resultado_label(grid, "Ângulo ideal", "—", 4)
-
-        # Botões de export
-        frame_export = tk.Frame(frame_final, bg=COR["painel"])
-        frame_export.pack(fill="x", pady=(8, 0))
-
-        for texto, tipo in [("💾  SVG", "svg"),
-                             ("💾  DAT", "dat"),
-                             ("💾  JSON", "json")]:
-            ttk.Button(frame_export, text=texto,
-                       command=lambda t=tipo: self._exportar(t)
-            ).pack(side="left", padx=(0, 4))
-
-
-    def _resultado_label(self, parent, nome: str, valor: str,
-                          row: int) -> tk.Label:
-        tk.Label(parent, text=f"{nome}:",
-                 bg=COR["card"], fg=COR["texto_dim"],
-                 font=FONTE["label"], width=14, anchor="w"
-        ).grid(row=row, column=0, sticky="w", pady=2)
-        lbl = tk.Label(parent, text=valor,
-                       bg=COR["card"], fg=COR["verde"],
-                       font=FONTE["resultado"])
-        lbl.grid(row=row, column=1, sticky="w", padx=(8, 0))
-        return lbl
-
-
-    # ----------------------------------------------------------
-    # LÓGICA — LEITURA DE INPUTS
-    # ----------------------------------------------------------
-
-    def _le_float(self, dic, key, default):
-        try:    return float(dic[key].get())
-        except: return default
-
-    def _le_int(self, dic, key, default):
-        try:    return int(dic[key].get())
-        except: return default
-
-    def _le_espessuras(self):
+    def _f(self, dic, key, default) -> float:
         try:
-            raw = self.vars_busca["espessuras"].get()
-            return [int(e.strip()) for e in raw.split(",")]
-        except:
-            return [8, 10, 12, 15, 18]
+            return float(dic[key].get())
+        except Exception:
+            return default
+
+    def _i(self, dic, key, default) -> int:
+        try:
+            return int(dic[key].get())
+        except Exception:
+            return default
+
+    def _le_wing_3d(self) -> pipeline.Wing3DParams:
+        return pipeline.Wing3DParams(
+            span_mm=max(100.0, self._f(self.vars_3d, "span_mm", 5000.0)),
+            root_chord_mm=max(50.0, self._f(self.vars_3d, "root_chord_mm", 1200.0)),
+            tip_chord_mm=max(20.0, self._f(self.vars_3d, "tip_chord_mm", 700.0)),
+            tip_twist_deg=self._f(self.vars_3d, "tip_twist_deg", -3.0),
+            wing_sweep_deg=self._f(self.vars_3d, "wing_sweep_deg", 15.0),
+            wing_dihedral_deg=self._f(self.vars_3d, "wing_dihedral_deg", 2.0),
+            target_section_size_mm=max(20.0, self._f(self.vars_3d, "section_size_mm", 250.0)),
+            voxel_size_mm=max(0.5, self._f(self.vars_3d, "voxel_size_mm", 2.5)),
+        )
 
     def _monta_cond_cfg(self):
-        """Lê todos os campos e monta FlightConditions + cfg."""
-        cond = engine.Enviroment.FlightConditions(
-            altitude        = self._le_float(self.vars_voo, "altitude",   1500),
-            velocity        = self._le_float(self.vars_voo, "velocity",  60),
-            target_cl       = self._le_float(self.vars_voo, "target_cl",    0.8),
-            chord_size      = self._le_float(self.vars_voo, "chord_m",      1.2),
+        w3d = self._le_wing_3d()
+        chord_m = w3d.root_chord_mm / 1000.0
+        altitude = self._f(self.vars_voo, "altitude", 1500.0)
+        velocity = max(1.0, self._f(self.vars_voo, "velocity", 60.0))
+        area_m2 = env.wing_area_m2(w3d.span_mm, w3d.root_chord_mm, w3d.tip_chord_mm)
+        modo = self.search_mode.get()
+
+        payload_kg = self._f(self.vars_voo, "payload_kg", 120.0)
+        cond_tmp = env.FlightConditions(altitude=altitude, velocity=velocity, target_cl=0.8, chord_size=chord_m)
+
+        if modo == "payload":
+            req_cl = env.required_cl(payload_kg, cond_tmp.rho, velocity, area_m2)
+            target_cl = req_cl
+        else:
+            target_cl = self._f(self.vars_voo, "target_cl", 0.8)
+            req_cl = target_cl
+
+        cond = env.FlightConditions(
+            altitude=altitude,
+            velocity=velocity,
+            target_cl=target_cl,
+            chord_size=chord_m,
         )
-        cd_min_val  = self._le_float(self.vars_filtros, "cd_min",  0)
-        eff_max_val = self._le_float(self.vars_filtros, "eff_max", 0)
+
+        try:
+            espessuras = [int(e.strip()) for e in self.vars_busca["espessuras"].get().split(",") if e.strip()]
+            if not espessuras:
+                espessuras = [8, 10, 12, 15, 18]
+        except Exception:
+            espessuras = [8, 10, 12, 15, 18]
+
+        cd_min_val = self._f(self.vars_filtros, "cd_min", 0.0)
+        eff_max_val = self._f(self.vars_filtros, "eff_max", 0.0)
 
         cfg = {
-            "cl_tolerance": self._le_float(self.vars_busca,  "cl_tolerance", 0.01),
-            "camber_max":    self._le_int(  self.vars_busca,  "camber_max",    6),
-            "espessuras":    self._le_espessuras(),
-            "cd_min":        cd_min_val if cd_min_val > 0 else env.min_Cd(cond.reynolds),
-            "eff_max":       eff_max_val if eff_max_val > 0 else env.max_efficiency(cond.reynolds),
-            "alpha_start":   self._le_float(self.vars_xfoil, "alpha_start", 0),
-            "alpha_end":     self._le_float(self.vars_xfoil, "alpha_end",   0),
-            "alpha_step":    self._le_float(self.vars_xfoil, "alpha_step",  0.5),
-            "n_panels":      self._le_int(  self.vars_xfoil, "n_panels",    240),
-            "n_threads":     self._le_int(  self.vars_xfoil,  "n_threads",     1),
-            "n_iterations":  self._le_int(  self.vars_xfoil,  "n_iterations", 100)
+            "search_mode":  modo,
+            "payload_kg":   payload_kg if modo == "payload" else None,
+            "required_cl":  req_cl,
+            "wing_area_m2": area_m2,
+            "cl_tolerance": self._f(self.vars_busca, "cl_tolerance", 0.15),
+            "camber_max":   self._i(self.vars_busca, "camber_max", 6),
+            "espessuras":   espessuras,
+            "cd_min":       cd_min_val if cd_min_val > 0 else env.min_Cd(cond.reynolds),
+            "eff_max":      eff_max_val if eff_max_val > 0 else env.max_efficiency(cond.reynolds),
+            "alpha_start":  self._f(self.vars_busca, "alpha_start", -2.0),
+            "alpha_end":    self._f(self.vars_busca, "alpha_end", 12.0),
+            "alpha_step":   self._f(self.vars_busca, "alpha_step", 0.5),
+            "n_panels":     self._i(self.vars_busca, "n_panels", 240),
+            "n_threads":    self._i(self.vars_busca, "n_threads", 4),
+            "n_ITER":       self._i(self.vars_busca, "n_iterations", 100),
         }
-        return cond, cfg
-
-
-    # ----------------------------------------------------------
-    # LÓGICA — ATMOSFERA            TODO: Atualizar os dados imediatamente apos o usuario alterar os dados iniciais
-    # ----------------------------------------------------------
+        return cond, cfg, w3d
 
     def _atualiza_dados(self):
         try:
-            cond, _ = self._monta_cond_cfg()
-            self.label_reynolds.config(text=f"{cond.reynolds:,.0f}")
-            self.label_mach.config(    text=f"{cond.mach:.4f}")
-            self.label_rho.config(     text=f"{cond.rho:.4f}")
+            cond, cfg, _ = self._monta_cond_cfg()
+            self.lbl_re.config(text=f"{cond.reynolds:,.0f}")
+            self.lbl_mach.config(text=f"{cond.mach:.4f}")
+            self.lbl_rho.config(text=f"{cond.rho:.4f}")
+            self.lbl_area.config(text=f"{cfg['wing_area_m2']:.2f} m²")
+            if cfg["search_mode"] == "payload":
+                self.lbl_clreq.config(text=f"{cfg['required_cl']:.4f}")
+            else:
+                self.lbl_clreq.config(text=f"{cond.target_cl:.3f} (alvo)")
         except Exception:
-            self.label_reynolds.config(text="erro")
+            self.lbl_re.config(text="erro")
+
+    def _ao_editar_3d(self):
+        self._atualiza_dados()
+        code = self.top4[self.selected_idx][0] if self.top4 else "2412"
+        self._desenha_3d_preview(code)
 
     # ----------------------------------------------------------
-    # LÓGICA — ANÁLISE PRINCIPAL
+    # EXECUÇÃO DA OTIMIZAÇÃO + PIPELINE AUTÔNOMA
     # ----------------------------------------------------------
 
     def _iniciar_analise(self):
-    
         if self.analisando:
+            return
+        if not engine.XFOIL_PATH.exists():
+            messagebox.showerror("xfoil.exe não encontrado", f"Coloque o xfoil.exe em:\n{engine.XFOIL_PATH}")
             return
 
         try:
-            cond, cfg = self._monta_cond_cfg()
+            cond, cfg, w3d = self._monta_cond_cfg()
         except Exception as e:
             messagebox.showerror("Erro nos parâmetros", str(e))
             return
 
-        if not engine.XFOIL_PATH.exists():
-            messagebox.showerror("xfoil.exe não encontrado",
-                f"Coloque o xfoil.exe em:\n{engine.XFOIL_PATH}")
-            return
-
         self.analisando = True
         self.btn_calcular.config(state="disabled")
-        self.progresso.pack(fill="x", padx=10, pady=(4, 0))
-        self.progresso.start(10)
-        self._set_status("Analisando perfis NACA...")
-        self._limpa_resultados()
+        self.progresso["value"] = 0
+        self._set_badge("● OTIMIZANDO 2D...", COR["amarelo"])
+        self.lbl_status.config(text="Executando XFOIL nos perfis NACA...")
 
-        # daemon=True: a thread morre junto com a janela
         threading.Thread(
             target=self._thread_analise,
-            args=(cond, cfg),
+            args=(cond, cfg, w3d),
+            daemon=True,
         ).start()
+        self.root.after(80, self._checa_fila)
 
-        self.root.after(100, self._checa_fila)
+    def _thread_analise(self, cond, cfg, w3d):
+        def _prog(done, total, code, _res):
+            self.fila.put(("prog", done, total, code))
 
-
-    def _thread_analise(self, cond, cfg):
         try:
-            best_code, result, top5 = optimizer.run(cond, cfg)
-            self.fila.put(("ok", best_code, result, top5, cond))
+            best_code, result, top4 = optimizer.run(cond, cfg, progress_callback=_prog)
+            self.fila.put(("ok", best_code, result, top4, cond, cfg, w3d))
         except Exception as e:
             self.fila.put(("erro", str(e)))
 
-
     def _checa_fila(self):
-        
         try:
-            msg = self.fila.get_nowait()
+            while True:
+                msg = self.fila.get_nowait()
+                kind = msg[0]
 
-            self.progresso.stop()
-            self.progresso.pack_forget()
-            self.analisando = False
-            self.btn_calcular.config(state="normal")
+                if kind == "prog":
+                    _, done, total, code = msg
+                    pct = (done / max(1, total)) * 100.0
+                    self.progresso["value"] = pct
+                    self.lbl_status.config(text=f"Testando NACA {code} ({done}/{total})...")
+                elif kind == "erro":
+                    self.analisando = False
+                    self.btn_calcular.config(state="normal")
+                    self._set_badge("● ERRO", COR["vermelho"])
+                    self.lbl_status.config(text=f"Erro: {msg[1]}")
+                    messagebox.showerror("Erro na análise", msg[1])
+                    return
+                elif kind == "ok":
+                    _, best_code, result, top4, cond, cfg, w3d = msg
+                    self.analisando = False
+                    self.btn_calcular.config(state="normal")
+                    if result is None or not top4:
+                        self._set_badge("● SEM RESULTADO", COR["amarelo"])
+                        self.lbl_status.config(text="Nenhum perfil passou nos filtros.")
+                        messagebox.showwarning("Sem resultado", "Nenhum perfil passou nos filtros. Ajuste alpha, tolerância ou carga.")
+                        return
 
-            if msg[0] == "erro":
-                self._set_status(f"Erro: {msg[1]}", COR["vermelho"])
-                messagebox.showerror("Erro na análise", msg[1])
-            else:
-                _, best_code, result, top5, cond = msg
-                if result is None:
-                    self._set_status("Nenhum perfil passou nos filtros.",
-                                     COR["amarelo"])
-                else:
-                    self._exibe_resultado(best_code, result, top5, cond)
-                    self._set_status(
-                        f"Concluído! Melhor: NACA {best_code}", COR["verde"])
+                    self.top4 = top4
+                    self.cond_atual = cond
+                    self.cfg_atual = cfg
+                    self._atualiza_cards_top4()
+                    self._selecionar_asa(0)
+                    self.progresso["value"] = 100
+                    self.lbl_status.config(text=f"Concluído! Melhor: NACA {best_code}")
 
+                    if self.auto_pipeline.get():
+                        self._executar_pipeline_3d(0, w3d)
+                    else:
+                        self._set_badge("● CONCLUÍDO", COR["verde"])
+                    return
+                elif kind == "3d_log":
+                    self.lbl_log.config(text=msg[1])
+                elif kind == "3d_done":
+                    _, ok, out_msg = msg
+                    self.gerando_3d = False
+                    self.btn_3d.config(state="normal")
+                    if ok:
+                        self._set_badge("● PIPELINE CONCLUÍDA", COR["verde"])
+                        self.lbl_log.config(text=out_msg)
+                    else:
+                        self._set_badge("● AVISO 3D", COR["amarelo"])
+                        self.lbl_log.config(text=out_msg)
+                    return
         except queue.Empty:
-            # Ainda processando — agenda próxima verificação em 100ms
-            self.root.after(100, self._checa_fila)
+            pass
 
+        if self.analisando or self.gerando_3d:
+            self.root.after(80, self._checa_fila)
 
     # ----------------------------------------------------------
-    # EXIBIÇÃO DOS RESULTADOS
+    # TOP 4 & VISUALIZAÇÃO EM TEMPO REAL
     # ----------------------------------------------------------
 
-    def _exibe_resultado(self, best_code, result, top5, cond):
-        self.resultado_atual = {
-            "code": best_code, "result": result,
-            "top5": top5, "cond": cond
-        }
-        self.label_naca.config( text=f"NACA {best_code}")
-        self.label_cl.config(   text=f"{result['cl']:.4f}")
-        self.label_cd.config(   text=f"{result['cd']:.5f}")
-        self.label_clcd.config( text=f"{result['efficiency']:.2f}")
-        self.label_alpha.config(text=f"{result['alpha_opt']:.1f}°")
+    def _atualiza_cards_top4(self):
+        for i in range(4):
+            w = self.top4_widgets[i]
+            if i < len(self.top4):
+                code, res = self.top4[i]
+                w["code"].config(text=f"NACA {code}")
+                w["eff"].config(text=f"CL/CD {res['efficiency']:.1f}")
+                lift_txt = f" | {res['lift_kg']:.0f} kgf" if "lift_kg" in res else ""
+                w["meta"].config(text=f"CL {res['cl']:.3f} | CD {res['cd']:.4f} | α {res['alpha_opt']:.1f}°{lift_txt}")
+            else:
+                w["code"].config(text="—")
+                w["eff"].config(text="CL/CD: —")
+                w["meta"].config(text="Sem candidato")
 
-        self._atualiza_top5(top5)
+    def _selecionar_asa(self, idx: int):
+        if idx >= len(self.top4):
+            return
+        self.selected_idx = idx
 
-        x, y = engine.nacaGenerator(best_code, n_points = 255)
-        self._desenha_perfil(x, y, best_code, result)
+        for i, w in enumerate(self.top4_widgets):
+            is_sel = (i == idx)
+            bg = COR["card_active"] if is_sel else COR["card"]
+            border = COR["azul"] if is_sel else COR["borda"]
+            w["card"].config(bg=bg, highlightbackground=border, highlightthickness=2 if is_sel else 1)
+            w["hdr"].config(bg=bg)
+            w["rank"].config(bg=bg)
+            w["tag"].config(bg=bg, text="SELECIONADA" if is_sel else "")
+            w["code"].config(bg=bg)
+            w["eff"].config(bg=bg)
+            w["meta"].config(bg=bg)
 
+        code, res = self.top4[idx]
+        self.kpi_labels["code"].config(text=f"NACA {code}", fg=COR["azul"])
+        self.kpi_labels["cl"].config(text=f"{res['cl']:.4f}")
+        self.kpi_labels["cd"].config(text=f"{res['cd']:.5f}")
+        self.kpi_labels["eff"].config(text=f"{res['efficiency']:.2f}", fg=COR["verde"])
+        self.kpi_labels["alpha"].config(text=f"{res['alpha_opt']:.1f}°")
+        if "lift_kg" in res:
+            self.kpi_labels["lift"].config(text=f"{res['lift_kg']:.1f} kgf")
+        else:
+            self.kpi_labels["lift"].config(text="Modo CL")
 
-    def _atualiza_top5(self, top5: list):
-        self.texto_top5.config(state="normal")
-        self.texto_top5.delete("1.0", "end")
+        x, y = engine.nacaGenerator(code, n_points=255)
+        self._desenha_perfil_2d(x, y, code, res)
+        self._desenha_3d_preview(code)
 
-        header = f"  {'#':<3} {'NACA':<8} {'CL':>7} {'CD':>8} {'CL/CD':>7} {'α':>6}\n"
-        header += f"  {'─'*44}\n"
-        self.texto_top5.insert("end", header, "header")
-
-        for i, (code, res) in enumerate(top5):
-            linha = (f"  {i+1:<3} {code:<8} "
-                     f"{res['cl']:>7.4f} {res['cd']:>8.5f} "
-                     f"{res['efficiency']:>7.2f} {res['alpha_opt']:>5.1f}°\n")
-            tag = "melhor" if i == 0 else "normal"
-            self.texto_top5.insert("end", linha, tag)
-
-        self.texto_top5.config(state="disabled")
-
-
-    def _desenha_perfil(self, x, y, code, result):
-        self.ax.clear()
-        self.ax.set_facecolor(COR["card"])
-        self.ax.plot(x, y, color=COR["azul"], linewidth=1.8,
-                     label=f"NACA {code}")
-        self.ax.fill(x, y, alpha=0.15, color=COR["azul"])
-        self.ax.set_aspect("equal")
-        self.ax.grid(True, alpha=0.15, color=COR["borda"])
-        self.ax.set_xlabel("x/c", color=COR["texto_dim"], fontsize=8)
-        self.ax.set_ylabel("y/c", color=COR["texto_dim"], fontsize=8)
-        self.ax.tick_params(colors=COR["texto_dim"], labelsize=7)
-        for spine in self.ax.spines.values():
-            spine.set_edgecolor(COR["borda"])
-        self.ax.set_title(
-            f"NACA {code}   |   CL={result['cl']:.3f}   "
-            f"CD={result['cd']:.4f}   CL/CD={result['efficiency']:.1f}   "
-            f"α={result['alpha_opt']:.1f}°",
+    def _desenha_perfil_2d(self, x, y, code: str, res: dict):
+        self.ax_2d.clear()
+        self.ax_2d.set_facecolor(COR["bg"])
+        self.ax_2d.plot(x, y, color=COR["azul"], linewidth=2.0, label=f"NACA {code}")
+        self.ax_2d.fill(x, y, alpha=0.18, color=COR["azul"])
+        self.ax_2d.axhline(0, color=COR["borda"], linewidth=0.8, linestyle="--")
+        self.ax_2d.set_aspect("equal")
+        self.ax_2d.grid(True, alpha=0.2, color=COR["borda"])
+        self.ax_2d.tick_params(colors=COR["texto_sec"], labelsize=8)
+        for sp in self.ax_2d.spines.values():
+            sp.set_edgecolor(COR["borda"])
+        self.ax_2d.set_title(
+            f"NACA {code}  |  CL={res['cl']:.3f}  CD={res['cd']:.4f}  CL/CD={res['efficiency']:.1f}  α={res['alpha_opt']:.1f}°",
             color=COR["texto"], fontsize=9, pad=8
         )
-        self.ax.legend(loc="upper right", fontsize=8,
-                       facecolor=COR["card"], edgecolor=COR["borda"],
-                       labelcolor=COR["texto"])
-        self.canvas_fig.draw()
+        self.fig_2d.tight_layout()
+        self.canvas_2d.draw()
 
+    def _limpa_grafico_2d(self):
+        self.ax_2d.clear()
+        self.ax_2d.set_facecolor(COR["bg"])
+        self.ax_2d.text(
+            0.5, 0.5, "Execute a otimização para visualizar o perfil 2D",
+            transform=self.ax_2d.transAxes, ha="center", va="center",
+            color=COR["texto_dim"], fontsize=9
+        )
+        self.ax_2d.set_xticks([])
+        self.ax_2d.set_yticks([])
+        self.canvas_2d.draw()
 
-    def _limpa_grafico(self):
-        self.ax.clear()
-        self.ax.set_facecolor(COR["card"])
-        self.ax.text(0.5, 0.5, "O perfil aparecerá aqui após a análise",
-                     transform=self.ax.transAxes, ha="center", va="center",
-                     color=COR["texto_dim"], fontsize=9, style="italic")
-        self.ax.set_xticks([])
-        self.ax.set_yticks([])
-        for spine in self.ax.spines.values():
-            spine.set_edgecolor(COR["borda"])
+    def _desenha_3d_preview(self, code: str):
+        try:
+            w3d = self._le_wing_3d()
+            x, y = engine.nacaGenerator(code, n_points=120)
+            Xg, Yg, Zg = pipeline.build_wing_preview_mesh(x, y, w3d, n_sections=14, n_profile_pts=60)
 
+            self.ax_3d.clear()
+            self.ax_3d.set_facecolor(COR["bg"])
+            # Plota asa com envergadura no eixo Y visual e espessura no Z visual para melhor leitura 3D
+            self.ax_3d.plot_surface(
+                Xg, Zg, Yg,
+                color=COR["azul"], alpha=0.85, edgecolor="#0F2A3F", linewidth=0.25, antialiased=True
+            )
+            self.ax_3d.set_xlabel("Corda X (mm)", color=COR["texto_sec"], fontsize=8)
+            self.ax_3d.set_ylabel("Envergadura Z (mm)", color=COR["texto_sec"], fontsize=8)
+            self.ax_3d.set_zlabel("Espessura/Diedro Y (mm)", color=COR["texto_sec"], fontsize=8)
+            self.ax_3d.tick_params(colors=COR["texto_dim"], labelsize=7)
+            self.ax_3d.set_title(f"Asa 3D — NACA {code} (Tempo Real)", color=COR["texto"], fontsize=9)
 
-    def _limpa_resultados(self):
-        for lbl in [self.label_naca, self.label_cl, self.label_cd,
-                    self.label_clcd, self.label_alpha]:
-            lbl.config(text="—")
-        self.texto_top5.config(state="normal")
-        self.texto_top5.delete("1.0", "end")
-        self.texto_top5.config(state="disabled")
-        self._limpa_grafico()
-        self.canvas_fig.draw()
-        self.resultado_atual = None
-
+            max_range = max(Xg.max() - Xg.min(), Zg.max() - Zg.min(), 1.0) / 2.0
+            mid_x = (Xg.max() + Xg.min()) / 2.0
+            mid_z = (Zg.max() + Zg.min()) / 2.0
+            mid_y = (Yg.max() + Yg.min()) / 2.0
+            self.ax_3d.set_xlim(mid_x - max_range, mid_x + max_range)
+            self.ax_3d.set_ylim(mid_z - max_range, mid_z + max_range)
+            self.ax_3d.set_zlim(mid_y - max_range * 0.4, mid_y + max_range * 0.4)
+            self.ax_3d.view_init(elev=26, azim=-48)
+            self.canvas_3d.draw()
+        except Exception:
+            pass
 
     # ----------------------------------------------------------
-    # EXPORTAÇÃO
+    # EXPORTAÇÃO & PIPELINE 3D PARA A ASA SELECIONADA
     # ----------------------------------------------------------
 
     def _exportar(self, tipo: str):
-        if self.resultado_atual is None:
-            messagebox.showwarning("Sem resultado",
-                                   "Rode a análise antes de exportar.")
+        if not self.top4 or self.cond_atual is None:
+            messagebox.showwarning("Sem resultado", "Execute a otimização antes de exportar.")
             return
 
-        code   = self.resultado_atual["code"]
-        result = self.resultado_atual["result"]
-        cond   = self.resultado_atual["cond"]
-        x, y   = engine.nacaGenerator(code, n_points=250)
+        code, res = self.top4[self.selected_idx]
+        x, y = engine.nacaGenerator(code, n_points=255)
 
-        extensoes    = {"svg": [("SVG","*.svg")],
-                        "dat": [("DAT","*.dat")],
-                        "json":[("JSON","*.json")]}
-        nome_padrao  = {"svg": f"naca_{code}.svg",
-                        "dat": f"naca_{code}.dat",
-                        "json":f"naca_{code}_result.json"}
+        if tipo == "all":
+            pasta = filedialog.askdirectory(title="Escolha a pasta de exportação")
+            if not pasta:
+                return
+            out = Path(pasta)
+            dat_p = engine.export_dat(x, y, code, out)
+            engine.export_svg(x, y, code, out)
+            engine.export_json(code, res, self.cond_atual, dat_p, out, extra_cfg=self.cfg_atual)
+            engine.export_plot(x, y, code, res, out)
+            messagebox.showinfo("Exportado!", f"Pacote 2D completo de NACA {code} salvo em:\n{out}")
+            return
 
-        caminho = filedialog.asksaveasfilename(
-            defaultextension=f".{tipo}",
-            filetypes=extensoes[tipo],
-            initialfile=nome_padrao[tipo]
-        )
+        ext_map = {"svg": [("SVG", "*.svg")], "dat": [("DAT", "*.dat")], "json": [("JSON", "*.json")]}
+        def_map = {"svg": f"naca_{code}.svg", "dat": f"naca_{code}.dat", "json": f"naca_{code}_result.json"}
+        caminho = filedialog.asksaveasfilename(defaultextension=f".{tipo}", filetypes=ext_map[tipo], initialfile=def_map[tipo])
         if not caminho:
             return
-
         out = Path(caminho).parent
-        try:
-            if tipo == "svg":
-                engine.export_svg(x, y, code, out)
-            elif tipo == "dat":
-                engine.export_dat(x, y, code, out)
-            elif tipo == "json":
-                engine.export_json(code, result, cond, Path(f"naca_{code}.dat"), out)
-            messagebox.showinfo("Exportado!", f"Arquivo salvo em:\n{caminho}")
-        except Exception as e:
-            messagebox.showerror("Erro ao exportar", str(e))
+        if tipo == "svg":
+            engine.export_svg(x, y, code, out)
+        elif tipo == "dat":
+            engine.export_dat(x, y, code, out)
+        elif tipo == "json":
+            engine.export_json(code, res, self.cond_atual, Path(f"naca_{code}.dat"), out, extra_cfg=self.cfg_atual)
+        messagebox.showinfo("Exportado!", f"NACA {code} salvo em:\n{caminho}")
 
+    def _gerar_3d_selecionada(self):
+        if not self.top4 or self.cond_atual is None:
+            messagebox.showwarning("Sem asa selecionada", "Execute a otimização e selecione uma das 4 asas primeiro.")
+            return
+        self._executar_pipeline_3d(self.selected_idx, self._le_wing_3d())
 
-    # ----------------------------------------------------------
-    # UTILITÁRIOS
-    # ----------------------------------------------------------
+    def _executar_pipeline_3d(self, idx: int, w3d: pipeline.Wing3DParams):
+        if self.gerando_3d:
+            return
+        code, res = self.top4[idx]
+        out = pipeline.DEFAULT_OUTPUT_DIR
+        out.mkdir(exist_ok=True)
+        x, y = engine.nacaGenerator(code, n_points=255)
+        dat_path = engine.export_dat(x, y, code, out)
+        engine.export_svg(x, y, code, out)
+        engine.export_json(code, res, self.cond_atual, dat_path, out, extra_cfg=self.cfg_atual)
+        stl_path = out / f"wing_naca_{code}.stl"
 
-    def _set_status(self, msg: str, cor: str = ""):
-        self.label_status.config(text=msg,
-                                  fg=cor if cor else COR["texto_dim"])
+        self.gerando_3d = True
+        self.btn_3d.config(state="disabled")
+        self._set_badge("● GERANDO STL 3D...", COR["amarelo"])
+        self.lbl_log.config(text=f"[Pipeline] Iniciando geração 3D para NACA {code}...")
+
+        def _worker():
+            ok, _stl, msg = pipeline.run_3d_generator(
+                dat_path, stl_path, w3d,
+                log_callback=lambda line: self.fila.put(("3d_log", line)),
+            )
+            self.fila.put(("3d_done", ok, msg))
+
+        threading.Thread(target=_worker, daemon=True).start()
+        self.root.after(80, self._checa_fila)
+
+    def _set_badge(self, txt: str, cor: str):
+        self.badge_pipeline.config(text=txt, fg=cor)
 
     def _resetar_padrao(self):
-        defaults = [
-            (self.vars_voo, {
-                "altitude":"1500","velocity":"60","target_cl":"0.8",
-                "chord_m":"1.2"}),
-            (self.vars_busca, {
-                "cl_tolerance":"0.15",
-                "camber_max":"6","espessuras":"8,10,12,15,18"}),
-            (self.vars_xfoil, {
-                "alpha_start":"0","alpha_end":"0",
-                "alpha_step":"0.5","n_panels":"240","n_threads":"1","n_iterations":"100"}),
-            (self.vars_filtros, {"cd_min":"0","eff_max":"0"}),
-        ]
-        for dic, vals in defaults:
-            for i, v in vals.items():
-                dic[i].set(v)
+        for k, v in [("altitude", "1500"), ("velocity", "60"), ("payload_kg", "120"), ("target_cl", "0.8")]:
+            self.vars_voo[k].set(v)
+        for k, v in [
+            ("span_mm", "5000"), ("root_chord_mm", "1200"), ("tip_chord_mm", "700"),
+            ("wing_sweep_deg", "15"), ("tip_twist_deg", "-3"), ("wing_dihedral_deg", "2"),
+            ("section_size_mm", "250"), ("voxel_size_mm", "2.5"),
+        ]:
+            self.vars_3d[k].set(v)
+        for k, v in [
+            ("cl_tolerance", "0.15"), ("camber_max", "6"), ("espessuras", "8,10,12,15,18"),
+            ("alpha_start", "-2"), ("alpha_end", "12"), ("alpha_step", "0.5"),
+            ("n_panels", "240"), ("n_iterations", "100"), ("n_threads", "4"),
+        ]:
+            self.vars_busca[k].set(v)
+        self.vars_filtros["cd_min"].set("0")
+        self.vars_filtros["eff_max"].set("0")
         self._atualiza_dados()
-        # self._limpa_resultados()
-        self._set_status("Padrões restaurados.")
+        self.lbl_status.config(text="Padrões restaurados.")
 
     def _ao_fechar(self):
-        if self.analisando:
-            if not messagebox.askyesno(
-                "Análise em andamento",
-                "Uma análise está em andamento. Deseja fechar mesmo assim?"
-            ):
+        if self.analisando or self.gerando_3d:
+            if not messagebox.askyesno("Processo em andamento", "Uma etapa da pipeline está em execução. Deseja fechar?"):
                 return
         plt.close("all")
         self.root.destroy()
 
 
-# ============================================================
-# PONTO DE ENTRADA
-# ============================================================
-
 def main():
     root = tk.Tk()
-    app  = NacaGUI(root)
-    app._atualiza_dados()
+    WingLabsGUI(root)
     root.mainloop()
 
 

@@ -1,4 +1,6 @@
-﻿def sendScript(     dat_path: str, polar_path: str, re: float,
+from __future__ import annotations
+
+def sendScript(     dat_path: str, polar_path: str, re: float,
                     mach: float, alpha_start: float, alpha_end: float,
                     alpha_step: float, script_path: str, n_panels: int, n_ITER: int):
     

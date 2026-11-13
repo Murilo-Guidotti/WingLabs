@@ -1,0 +1,13 @@
+{
+  "dat_file_path": "D:\\Projetos Robotica\\TCC\\WingLabs\\output\\naca_5310.dat",
+  "output_stl_path": "D:\\Projetos Robotica\\TCC\\WingLabs\\output\\wing_naca_5310.stl",
+  "span_mm": 150.0,
+  "root_chord_mm": 120.0,
+  "tip_chord_mm": 80.0,
+  "tip_twist_deg": 0.0,
+  "wing_sweep_deg": 15.0,
+  "wing_dihedral_deg": 0.0,
+  "tip_chanfer_deg": 0.0,
+  "target_section_size_mm": 250.0,
+  "voxel_size_mm": 0.5
+}

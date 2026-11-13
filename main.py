@@ -1,8 +1,10 @@
 # ============================================================
 # NACA Wing Profile Generator
-# Software 1 de 2 — Gerador de Perfil 2D
-# TCC — Gerador de Asa NACA
+# Software 1 de 2 — Gerador de Perfil 2D + Pipeline Autônoma 3D
+# TCC — Gerador de Asa NACA (WingLabs)
 # ============================================================
+
+from __future__ import annotations
 
 import subprocess
 import tempfile
@@ -10,29 +12,38 @@ import os
 import json
 import time
 import threading
-import numpy as np
-import svgwrite
-import matplotlib.pyplot as plt
-from ambiance import Atmosphere
 from pathlib import Path
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+try:
+    import svgwrite
+    _HAS_SVGWRITE = True
+except ImportError:
+    _HAS_SVGWRITE = False
+
 import ScriptSender as sender
 import NacaGenerator as nc
 import optimizer
 import Enviroment
+import pipeline
 
 # ============================================================
 # CONFIGURAÇÃO
 # ============================================================
 
 XFOIL_PATH = Path(__file__).parent / "xfoil.exe"
-print_lock  = threading.Lock()
+print_lock = threading.Lock()
+
 
 # ============================================================
 # SEÇÃO 1 — GERAÇÃO DO PERFIL NACA 4 DÍGITOS
 # ============================================================
 
-def nacaGenerator(code: str, n_points: int) -> tuple[np.ndarray, np.ndarray]: 
+def nacaGenerator(code: str, n_points: int) -> tuple[np.ndarray, np.ndarray]:
     return nc.generator(code, n_points)
+
 
 # ============================================================
 # SEÇÃO 2 — ANÁLISE AERODINÂMICA COM XFOIL VIA SUBPROCESS
@@ -43,12 +54,13 @@ def _escreve_dat(x: np.ndarray, y: np.ndarray, nome: str, caminho: str):
         f.write(f"{nome}\n")
         for xi, yi in zip(x, y):
             f.write(f"{xi:.6f}  {yi:.6f}\n")
-        
+
+
 def send_script(dat_path: str, polar_path: str, re: float,
                 mach: float, alpha_start: float, alpha_end: float,
                 alpha_step: float, script_path: str, n_panels: int, n_iter: int):
     sender.sendScript(dat_path, polar_path, re, mach, alpha_start,
-                    alpha_end, alpha_step, script_path, n_panels, n_iter)
+                      alpha_end, alpha_step, script_path, n_panels, n_iter)
 
 
 def _parseia_polar(polar_path: str) -> list[dict] | None:
@@ -80,17 +92,64 @@ def _parseia_polar(polar_path: str) -> list[dict] | None:
     return resultados if resultados else None
 
 
+def select_best_polar_point(
+    resultados: list[dict],
+    cond: Enviroment.FlightConditions,
+    cfg: dict | None = None,
+) -> dict | None:
+    """
+    Seleciona o melhor ponto da polar conforme o modo de busca:
+      - 'target_cl': |CL - target_cl| <= cl_tolerance, maximizando CL/CD.
+      - 'payload':   CL >= required_cl (qualquer CL capaz de sustentar a carga),
+                     maximizando CL/CD.
+    """
+    if cfg is None:
+        cfg = {}
+
+    search_mode = cfg.get("search_mode", "target_cl")
+    if search_mode == "payload":
+        req_cl = float(cfg.get("required_cl", cond.target_cl))
+        validos = [r for r in resultados if r["cd"] > 0 and r["cl"] >= req_cl]
+    else:
+        tol = float(cfg.get("cl_tolerance", 0.01))
+        validos = [
+            r for r in resultados
+            if r["cd"] > 0 and abs(r["cl"] - cond.target_cl) <= tol
+        ]
+
+    if not validos:
+        return None
+
+    melhor = max(validos, key=lambda r: r["cl"] / r["cd"])
+    out = {
+        "alpha_opt":  melhor["alpha"],
+        "cl":         melhor["cl"],
+        "cd":         melhor["cd"],
+        "cm":         melhor["cm"],
+        "efficiency": melhor["cl"] / melhor["cd"],
+    }
+
+    wing_area = cfg.get("wing_area_m2")
+    if wing_area is not None and wing_area > 0:
+        lift_n = 0.5 * cond.rho * (cond.velocity ** 2) * float(wing_area) * melhor["cl"]
+        out["lift_n"] = lift_n
+        out["lift_kg"] = lift_n / Enviroment.GRAVITY
+    if search_mode == "payload":
+        out["required_cl"] = float(cfg.get("required_cl", cond.target_cl))
+
+    return out
+
+
 def analyzeWithXfoil(x: np.ndarray, y: np.ndarray, cond: Enviroment.FlightConditions,
-                       nome: str = "perfil", cfg: dict | None = None) -> dict | None:
-    
+                     nome: str = "perfil", cfg: dict | None = None) -> dict | None:
     if cfg is None:
         cfg = {}
 
     alpha_start = cfg.get("alpha_start", 0.0)
     alpha_end   = cfg.get("alpha_end",   0.0)
-    alpha_step  = cfg.get("alpha_step",   0.5)
+    alpha_step  = cfg.get("alpha_step",  0.5)
     n_panels    = cfg.get("n_panels",    240)
-    n_ITER      = cfg.get("n_ITER",      100)
+    n_ITER      = cfg.get("n_ITER", cfg.get("n_iterations", 100))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         dat_path    = os.path.join(tmpdir, "perfil.dat")
@@ -123,22 +182,7 @@ def analyzeWithXfoil(x: np.ndarray, y: np.ndarray, cond: Enviroment.FlightCondit
         if not resultados:
             return None
 
-        validos = [r for r in resultados if r["cd"] > 0 and abs(r["cl"] - cond.target_cl) <= cfg.get("cl_tolerance", 0.01)]
-        if not validos:
-            return None
-        
-
-        melhor = max(validos, key=lambda r: r["cl"] / r["cd"])
-        return {
-            "alpha_opt":  melhor["alpha"],
-            "cl":         melhor["cl"],
-            "cd":         melhor["cd"],
-            "cm":         melhor["cm"],
-            "efficiency": melhor["cl"] / melhor["cd"]
-        }
-
-
-
+        return select_best_polar_point(resultados, cond, cfg)
 
 
 # ============================================================
@@ -149,38 +193,47 @@ def export_svg(x: np.ndarray, y: np.ndarray, code: str, output_dir: Path) -> Pat
     W, H    = 1920, 1080
     padding = 40
 
-    x_svg = x * (W - 2*padding) + padding
-    y_svg = -y * (W - 2*padding) + H / 2
-
-    dwg = svgwrite.Drawing(
-        filename=str(output_dir / f"naca_{code}.svg"),
-        size=(f"{W}px", f"{H}px"),
-        viewBox=f"0 0 {W} {H}"
-    )
-    dwg.add(dwg.rect(insert=(0, 0), size=(W, H), fill="white"))
+    x_svg = x * (W - 2 * padding) + padding
+    y_svg = -y * (W - 2 * padding) + H / 2
 
     path_d = [f"M {x_svg[0]:.3f} {y_svg[0]:.3f}"]
     for i in range(1, len(x_svg)):
-        cp1x = x_svg[i-1] + (x_svg[i] - x_svg[i-1]) / 3
-        cp1y = y_svg[i-1] + (y_svg[i] - y_svg[i-1]) / 3
-        cp2x = x_svg[i-1] + 2 * (x_svg[i] - x_svg[i-1]) / 3
-        cp2y = y_svg[i-1] + 2 * (y_svg[i] - y_svg[i-1]) / 3
+        cp1x = x_svg[i - 1] + (x_svg[i] - x_svg[i - 1]) / 3
+        cp1y = y_svg[i - 1] + (y_svg[i] - y_svg[i - 1]) / 3
+        cp2x = x_svg[i - 1] + 2 * (x_svg[i] - x_svg[i - 1]) / 3
+        cp2y = y_svg[i - 1] + 2 * (y_svg[i] - y_svg[i - 1]) / 3
         path_d.append(
             f"C {cp1x:.2f} {cp1y:.2f} {cp2x:.2f} {cp2y:.2f} "
             f"{x_svg[i]:.2f} {y_svg[i]:.2f}"
         )
     path_d.append("Z")
+    d_str = " ".join(path_d)
 
-    dwg.add(dwg.path(
-        d=" ".join(path_d),
-        fill="#E8F4FD", stroke="#185FA5", stroke_width=1.5
-    ))
-    dwg.add(dwg.text(
-        f"NACA {code}", insert=(padding, 25),
-        font_size="14px", font_family="sans-serif", fill="#333"
-    ))
-    dwg.save()
-    return Path(dwg.filename)
+    out_path = output_dir / f"naca_{code}.svg"
+    if _HAS_SVGWRITE:
+        dwg = svgwrite.Drawing(
+            filename=str(out_path),
+            size=(f"{W}px", f"{H}px"),
+            viewBox=f"0 0 {W} {H}"
+        )
+        dwg.add(dwg.rect(insert=(0, 0), size=(W, H), fill="white"))
+        dwg.add(dwg.path(d=d_str, fill="#E8F4FD", stroke="#185FA5", stroke_width=1.5))
+        dwg.add(dwg.text(
+            f"NACA {code}", insert=(padding, 25),
+            font_size="14px", font_family="sans-serif", fill="#333"
+        ))
+        dwg.save()
+    else:
+        svg_xml = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}px" height="{H}px" viewBox="0 0 {W} {H}">\n'
+            f'  <rect x="0" y="0" width="{W}" height="{H}" fill="white"/>\n'
+            f'  <path d="{d_str}" fill="#E8F4FD" stroke="#185FA5" stroke-width="1.5"/>\n'
+            f'  <text x="{padding}" y="25" font-size="14px" font-family="sans-serif" fill="#333">NACA {code}</text>\n'
+            f'</svg>\n'
+        )
+        out_path.write_text(svg_xml, encoding="utf-8")
+
+    return out_path
 
 
 def export_dat(x: np.ndarray, y: np.ndarray, code: str, output_dir: Path) -> Path:
@@ -193,30 +246,44 @@ def export_dat(x: np.ndarray, y: np.ndarray, code: str, output_dir: Path) -> Pat
 
 
 def export_json(code: str, result: dict, cond: Enviroment.FlightConditions,
-                dat_path: Path, output_dir: Path) -> Path:
+                dat_path: Path, output_dir: Path, extra_cfg: dict | None = None) -> Path:
+    aero = {
+        "alpha_opt":  result["alpha_opt"],
+        "cl":         result["cl"],
+        "cd":         result["cd"],
+        "cm":         result["cm"],
+        "efficiency": result["efficiency"],
+    }
+    if "lift_n" in result:
+        aero["lift_n"] = result["lift_n"]
+        aero["lift_kg"] = result["lift_kg"]
+    if "required_cl" in result:
+        aero["required_cl"] = result["required_cl"]
+
     payload = {
         "naca_code": code,
         "dat_file":  dat_path.name,
-        "aerodynamics": {
-            "alpha_opt":  result["alpha_opt"],
-            "cl":         result["cl"],
-            "cd":         result["cd"],
-            "cm":         result["cm"],
-            "efficiency": result["efficiency"]
-        },
+        "aerodynamics": aero,
         "flight": {
             "altitude":   cond.altitude,
-            "velocity":  cond.velocity,
-            "reynolds":     cond.reynolds,
-            "mach":         cond.mach,
-            "rho":          cond.rho,
-            "mu":           cond.mi,
-            "chord_size":      cond.chord_size,
-            "target_cl":    cond.target_cl
-        }
+            "velocity":   cond.velocity,
+            "reynolds":   cond.reynolds,
+            "mach":       cond.mach,
+            "rho":        cond.rho,
+            "mu":         cond.mi,
+            "chord_size": cond.chord_size,
+            "target_cl":  cond.target_cl,
+        },
     }
+    if extra_cfg:
+        payload["mission"] = {
+            "search_mode":  extra_cfg.get("search_mode", "target_cl"),
+            "payload_kg":   extra_cfg.get("payload_kg"),
+            "wing_area_m2": extra_cfg.get("wing_area_m2"),
+        }
+
     json_path = output_dir / f"naca_{code}_result.json"
-    with open(json_path, "w") as f:
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
     return json_path
 
@@ -245,11 +312,11 @@ def export_plot(x: np.ndarray, y: np.ndarray, code: str,
 
 
 # ============================================================
-# SEÇÃO 6 — ENTRADA DE PARÂMETROS PELO USUÁRIO
+# SEÇÃO 6 — ENTRADA DE PARÂMETROS PELO USUÁRIO (CLI)
 # ============================================================
 
 def input_float(prompt: str, default: float,
-              minval: float | None, maxval: float | None) -> float:
+                minval: float | None, maxval: float | None) -> float:
     while True:
         try:
             entrada = input(f"{prompt} [{default}]: ").strip()
@@ -282,25 +349,58 @@ def input_int(prompt: str, default: int,
             print("    ! Digite um número inteiro válido.")
 
 
-def coletar_parametros() -> tuple[Enviroment.FlightConditions, dict]:
+def coletar_parametros() -> tuple[Enviroment.FlightConditions, dict, pipeline.Wing3DParams]:
     print("\n" + "=" * 56)
     print("  Parâmetros de Voo")
     print("  (Enter = usar valor padrão)")
     print("=" * 56)
 
+    altitude   = input_float("  Altitude (m)",     1500, 0, 12000)
+    a_sound    = Enviroment.speed_of_sound(altitude)
+    velocidade = input_float("  Velocidade (m/s)", 60,   1, a_sound)
+    corda      = input_float("  Corda raiz (m)",   1.2,  0.1, 10)
 
-    altitude   = input_float("  Altitude (m)",       1500,  0,    12000)
-    velocidade = input_float("  Velocidade (m/s)",   60,    0,   Atmosphere(altitude).speed_of_sound[0])
-    target_cl  = input_float("  CL alvo",            0.8,   0.1,  2.5)
-    corda      = input_float("  Corda (m)",          1.2,   0.1,  10)
-   
-    cond = Enviroment.FlightConditions(
-        altitude   = altitude,
-        velocity  = velocidade,
-        target_cl    = target_cl,
-        chord_size      = corda,
+    print("\n  Modo de seleção aerodinâmica:")
+    print("    1 - CL alvo fixo")
+    print("    2 - Peso da carga (kg) -> busca melhor CL >= CL_req")
+    modo_op = input_int("  Escolha o modo (1 ou 2)", 2, 1, 2)
+    search_mode = "payload" if modo_op == 2 else "target_cl"
+
+    span_mm      = input_float("  Envergadura 3D (mm)",   5000.0, 200.0, 50000.0)
+    tip_chord_mm = input_float("  Corda da ponta (mm)",  corda * 600.0, 50.0, 20000.0)
+    sweep_deg    = input_float("  Enflechamento (°)",     15.0,  -45.0, 60.0)
+    twist_deg    = input_float("  Torção na ponta (°)",   -3.0,  -30.0, 30.0)
+    dihedral_deg = input_float("  Diedro (°)",            2.0,   -20.0, 30.0)
+
+    wing_3d = pipeline.Wing3DParams(
+        span_mm=span_mm,
+        root_chord_mm=corda * 1000.0,
+        tip_chord_mm=tip_chord_mm,
+        tip_twist_deg=twist_deg,
+        wing_sweep_deg=sweep_deg,
+        wing_dihedral_deg=dihedral_deg,
     )
 
+    area_m2 = Enviroment.wing_area_m2(wing_3d.span_mm, wing_3d.root_chord_mm, wing_3d.tip_chord_mm)
+    payload_kg = None
+
+    if search_mode == "payload":
+        payload_kg = input_float("  Peso da carga / massa total (kg)", 120.0, 0.1, 50000.0)
+        cond_tmp = Enviroment.FlightConditions(altitude=altitude, velocity=velocidade, target_cl=0.5, chord_size=corda)
+        req_cl = Enviroment.required_cl(payload_kg, cond_tmp.rho, velocidade, area_m2)
+        target_cl = req_cl
+        print(f"\n  Área alar calculada : {area_m2:.3f} m²")
+        print(f"  CL mínimo requerido : {req_cl:.4f}")
+    else:
+        target_cl = input_float("  CL alvo", 0.8, 0.1, 2.5)
+        req_cl = target_cl
+
+    cond = Enviroment.FlightConditions(
+        altitude   = altitude,
+        velocity   = velocidade,
+        target_cl  = target_cl,
+        chord_size = corda,
+    )
 
     print(f"\n  Densidade do ar     : {cond.rho:.4f} kg/m³")
     print(f"  Viscosidade dinâmica: {cond.mi:.2e} Pa·s")
@@ -308,13 +408,12 @@ def coletar_parametros() -> tuple[Enviroment.FlightConditions, dict]:
     print(f"  Mach calculado      : {cond.mach:.4f}")
     input("Pressione Enter para confirmar...")
 
-
     print("\n" + "=" * 56)
     print("  Configurações da Busca")
     print("=" * 56)
 
-    cl_tolerance = input_float("  Tolerância CL (±)",      0.15, 0.01, 0.5)
-    camber_max    = input_int(  "  Camber máximo (0-9)",    6,    0,   9)
+    cl_tolerance = input_float("  Tolerância CL (±)",   0.15, 0.01, 0.5)
+    camber_max   = input_int(  "  Camber máximo (0-9)", 6,    0,    9)
 
     print("\n  Espessuras a testar (separadas por vírgula):")
     while True:
@@ -330,40 +429,10 @@ def coletar_parametros() -> tuple[Enviroment.FlightConditions, dict]:
         except ValueError:
             print("    ! Digite números inteiros separados por vírgula.")
 
-
-    # Mostra os limites automáticos pro usuário saber o que esperar
     cd_auto  = Enviroment.min_Cd(cond.reynolds)
     eff_auto = Enviroment.max_efficiency(cond.reynolds)
-    print(f"\n  Limites automáticos para Re={cond.reynolds:,.0f}:")
-    print(f"    CD mínimo  → {cd_auto:.3f}")
-    print(f"    CL/CD máx  → {eff_auto:.1f}")
-    time.sleep(1)
-    
-
-    print("\n" + "=" * 56)
-    print("  Filtros de Validação Física")
-    print("  (Enter = usar limites automáticos por Reynolds)")
-    print("=" * 56)
-
-    print("\n" + "=" * 56)
-    print("  Referências típicas da literatura:")
-    print("  Re < 500k  → perfis de aeromodelo, CD_min ≈ 0.005–0.015")
-    print("  Re 500k–5M → aviação geral, CD_min ≈ 0.002–0.006")
-    print("  Re > 5M    → aeronaves grandes, CD_min ≈ 0.001–0.003")
-    print("=" * 56)
-
-    print(f"  CD mínimo aceito (auto={cd_auto:.4f}):")
-    cd_entrada = input(f"  CD mínimo [{cd_auto:.4f}]: ").strip()
+    cd_entrada  = input(f"  CD mínimo [{cd_auto:.4f}]: ").strip()
     cd_min_user = float(cd_entrada) if cd_entrada else cd_auto
-    
-    print("\n" + "=" * 56)
-    print("  Referências típicas da literatura:")
-    print("  ! Maiores números de Reynolds tendem a possuir maiores Coeficientes de Eficiência !")
-    print("  Planadores em Re alto chegam a 60-70.")
-    print("  Aviação geral em Re 1-5M pode atingir 80-120 em condições ideais.")
-    print("=" * 56)
-
-    print(f"  CL/CD máximo aceito (auto={eff_auto:.1f}):")
     eff_entrada = input(f"  CL/CD máximo [{eff_auto:.1f}]: ").strip()
     eff_max_user = float(eff_entrada) if eff_entrada else eff_auto
 
@@ -371,114 +440,96 @@ def coletar_parametros() -> tuple[Enviroment.FlightConditions, dict]:
     print("  Parâmetros do XFOIL")
     print("=" * 56)
 
-    alpha_start = input_float("  Alpha início (°)",   0,   -20,  0)
-    alpha_end   = input_float("  Alpha fim (°)",       0,    0,  40)
-    alpha_step  = input_float("  Passo do alpha (°)", 0.5,  0.1,  2)
-    n_panels    = input_int(  "  Número de painéis", 240,   80,  500)
-    n_ITER      = input_int(  "  Interações",        100,    1,  None)
-    n_threads   = input_int(  "  Threads paralelas",      1,    1,   32)
+    alpha_start = input_float("  Alpha início (°)",   -2.0, -20, 10)
+    alpha_end   = input_float("  Alpha fim (°)",      12.0, -10, 40)
+    alpha_step  = input_float("  Passo do alpha (°)", 0.5,  0.1, 2)
+    n_panels    = input_int(  "  Número de painéis",  240,  80,  500)
+    n_ITER      = input_int(  "  Iterações",          100,  1,   None)
+    n_threads   = input_int(  "  Threads paralelas",  4,    1,   32)
 
     cfg = {
-        "n_ITER": n_ITER,
-        "n_threads":     n_threads,
+        "search_mode":  search_mode,
+        "payload_kg":   payload_kg,
+        "required_cl":  req_cl,
+        "wing_area_m2": area_m2,
+        "n_ITER":       n_ITER,
+        "n_threads":    n_threads,
         "cl_tolerance": cl_tolerance,
-        "camber_max":    camber_max,
-        "espessuras":    espessuras,
-        "cd_min":        cd_min_user,   # None = usa automático por Reynolds
-        "eff_max":       eff_max_user,  # None = usa automático por Reynolds
-        "alpha_start":   alpha_start,
-        "alpha_end":     alpha_end,
-        "alpha_step":    alpha_step,
-        "n_panels":      n_panels,
+        "camber_max":   camber_max,
+        "espessuras":   espessuras,
+        "cd_min":       cd_min_user,
+        "eff_max":      eff_max_user,
+        "alpha_start":  alpha_start,
+        "alpha_end":    alpha_end,
+        "alpha_step":   alpha_step,
+        "n_panels":     n_panels,
     }
 
-    total = (camber_max + 1) * 4 * len(espessuras)
-    total_tests = max(1, (total * n_ITER) * ((alpha_end - alpha_start) / alpha_step) // n_threads)
-    print(f"\n  Total de perfis a testar : {total}")
-    print(f"\n  Total de testes : {total_tests}")
-    print(f"  Threads paralelas        : {n_threads}")
-    print(f"  Estimativa de tempo      : ~{max(1, total * n_ITER // n_threads * 3)}s")
-
-    confirma = input("\n  Iniciar análise? (Enter = sim / n = não): ").strip().lower()
-    if confirma == "n":
-        print("  Análise cancelada.")
-        exit()
-
-    return cond, cfg
+    return cond, cfg, wing_3d
 
 
 # ============================================================
-# SEÇÃO 7 — PROGRAMA PRINCIPAL
+# SEÇÃO 7 — PROGRAMA PRINCIPAL (PIPELINE AUTÔNOMA)
 # ============================================================
 
 def main():
-
     if not XFOIL_PATH.exists():
         print(f"\n[ERRO] xfoil.exe não encontrado em: {XFOIL_PATH}")
         print("Coloque o xfoil.exe na mesma pasta deste script.")
         return
 
-    cond, cfg = coletar_parametros()
+    cond, cfg, wing_3d = coletar_parametros()
 
-    print("\nIniciando otimização...")
+    print("\nIniciando otimização (Módulo 1)...")
     t0 = time.time()
 
-    best_code, result, top5 = optimizer.run(cond, cfg)
-
+    best_code, result, top4 = optimizer.run(cond, cfg)
     elapsed = time.time() - t0
     print(f"  Tempo total: {elapsed:.1f}s")
 
-    if result is None:
+    if result is None or not top4:
         print("\n[ERRO] Nenhum perfil passou nos filtros.")
-        print("Sugestões:")
-        print("  → Aumente a tolerância CL")
-        print("  → Aumente o CL/CD máximo aceito")
-        print("  → Diminua o CD mínimo aceito")
-        print("  → Ajuste os parâmetros de voo")
         return
 
-    # Top 5
-    print(f"\n  Top {len(top5)} candidatos (por CL/CD):")
+    print(f"\n  Top {len(top4)} candidatos (por CL/CD):")
     print(f"  {'#':<3} {'NACA':<8} {'CL':>7} {'CD':>8} {'CL/CD':>7} {'α':>6}")
     print(f"  {'-'*44}")
-    for i, (code, res) in enumerate(top5):
+    for i, (code, res) in enumerate(top4):
         print(
             f"  {i+1:<3} {code:<8} "
             f"{res['cl']:>7.4f} "
             f"{res['cd']:>8.5f} "
             f"{res['efficiency']:>7.2f} "
             f"{res['alpha_opt']:>5.1f}°"
-            "\n"
         )
 
-    print(f"\n{'='*56}")
-    print(f"  Melhor perfil encontrado: NACA {best_code}")
-    print(f"{'='*56}")
-    print(f"  CL           : {result['cl']:.4f}")
-    print(f"  CD           : {result['cd']:.5f}")
-    print(f"  CL/CD        : {result['efficiency']:.2f}")
-    print(f"  Ângulo ideal : {result['alpha_opt']:.1f}°")
-    print(f"  CM           : {result['cm']:.4f}")
+    idx_escolhido = input_int(f"\n  Escolha qual asa exportar (1 a {len(top4)})", 1, 1, len(top4)) - 1
+    chosen_code, chosen_res = top4[idx_escolhido]
 
-    print(f"\n  Interpretação:")
-
-    # Exports
-    x, y = nc.generator(best_code, n_points = 255)
-
+    x, y = nc.generator(chosen_code, n_points=255)
     out = Path("output")
     out.mkdir(exist_ok=True)
 
-    svg_path  = export_svg(x, y, best_code, out)
-    dat_path  = export_dat(x, y, best_code, out)
-    json_path = export_json(best_code, result, cond, dat_path, out)
-    plot_path = export_plot(x, y, best_code, result, out)
+    svg_path  = export_svg(x, y, chosen_code, out)
+    dat_path  = export_dat(x, y, chosen_code, out)
+    json_path = export_json(chosen_code, chosen_res, cond, dat_path, out, extra_cfg=cfg)
+    plot_path = export_plot(x, y, chosen_code, chosen_res, out)
 
-    print(f"\nArquivos gerados em '{out}/':")
+    print(f"\nArquivos 2D gerados em '{out}/':")
     print(f"  SVG   → {svg_path.name}")
     print(f"  DAT   → {dat_path.name}")
     print(f"  JSON  → {json_path.name}")
     print(f"  Plot  → {plot_path.name}")
-    print(f"\nPronto! O JSON pode ser lido pelo Software 2 (C#/PicoGK).")
+
+    print("\nIniciando pipeline autônoma para o Módulo 2 (3D PicoGK)...")
+    stl_path = out / f"wing_naca_{chosen_code}.stl"
+    ok, stl_out, msg = pipeline.run_3d_generator(
+        dat_path, stl_path, wing_3d, log_callback=print
+    )
+    if ok:
+        print(f"\nPipeline concluída! STL 3D salvo em: {stl_out}")
+    else:
+        print(f"\n[AVISO Pipeline 3D] {msg}")
 
 
 if __name__ == "__main__":
