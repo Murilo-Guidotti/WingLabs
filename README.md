@@ -125,5 +125,5 @@ python -m unittest discover -s tests -v
 ---
 
 ## Licença
-
-Consulte o arquivo [LICENSE](LICENSE) para detalhes sobre termos de uso e distribuição.
+O WingLabs é distribuído sob a licença GNU AGPLv3, o que garante que ele sempre será gratuito e de código aberto. Caso deseje utilizar o WingLabs (ou partes de seu código) em projetos comerciais de código fechado, a licença AGPLv3 não o permite. Neste caso, entre em contato através do e-mail murilo.guidoti@gmail.com para adquirir uma licença comercial proprietária direta com o autor.
+Consulte o arquivo [LICENSE](LICENSE) para mais detalhes sobre os termos de uso e distribuição.
