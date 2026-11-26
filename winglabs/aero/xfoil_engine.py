@@ -15,7 +15,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 try:
-    import svgwrite
+    import svgwrite # type: ignore
     _HAS_SVGWRITE = True
 except ImportError:
     _HAS_SVGWRITE = False
@@ -25,34 +25,14 @@ from winglabs.core import environment as env
 from winglabs.core import naca as nc
 from winglabs.paths import XFOIL_PATH
 
-
-def nacaGenerator(code: str, n_points: int) -> tuple[np.ndarray, np.ndarray]:
-    return nc.generator(code, n_points)
+nacaGenerator = nc.generator
 
 
-def _escreve_dat(x: np.ndarray, y: np.ndarray, nome: str, caminho: str):
+def _escreve_dat(x: np.ndarray, y: np.ndarray, nome: str, caminho: str | Path) -> None:
     with open(caminho, "w", encoding="utf-8") as f:
         f.write(f"{nome}\n")
         for xi, yi in zip(x, y):
-            f.write(f"{xi:.6f}  {yi:.6f}\n")
-
-
-def send_script(
-    dat_path: str,
-    polar_path: str,
-    re: float,
-    mach: float,
-    alpha_start: float,
-    alpha_end: float,
-    alpha_step: float,
-    script_path: str,
-    n_panels: int,
-    n_iter: int,
-):
-    sender.sendScript(
-        dat_path, polar_path, re, mach, alpha_start,
-        alpha_end, alpha_step, script_path, n_panels, n_iter
-    )
+            f.write(f" {xi:.6f}  {yi:.6f}\n")
 
 
 def _parseia_polar(polar_path: str) -> list[dict] | None:
@@ -99,8 +79,8 @@ def select_best_polar_point(
         cfg = {}
 
     search_mode = cfg.get("search_mode", "target_cl")
+    req_cl = float(cfg.get("required_cl") or cond.target_cl)
     if search_mode == "payload":
-        req_cl = float(cfg.get("required_cl", cond.target_cl))
         validos = [r for r in resultados if r["cd"] > 0 and r["cl"] >= req_cl]
     else:
         tol = float(cfg.get("cl_tolerance", 0.01))
@@ -127,7 +107,7 @@ def select_best_polar_point(
         out["lift_n"] = lift_n
         out["lift_kg"] = lift_n / env.GRAVITY
     if search_mode == "payload":
-        out["required_cl"] = float(cfg.get("required_cl", cond.target_cl))
+        out["required_cl"] = req_cl
 
     return out
 
@@ -145,21 +125,18 @@ def analyzeWithXfoil(
     alpha_start = cfg.get("alpha_start", 0.0)
     alpha_end   = cfg.get("alpha_end",   0.0)
     alpha_step  = cfg.get("alpha_step",  0.5)
-    n_panels    = cfg.get("n_panels",    240)
-    n_ITER      = cfg.get("n_ITER", cfg.get("n_iterations", 100))
+    n_panels    = cfg.get("n_panels",    500)
+    n_iter      = int(cfg.get("n_ITER",  100))
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        dat_path    = os.path.join(tmpdir, "perfil.dat")
-        script_path = os.path.join(tmpdir, "script.in")
-        polar_path  = os.path.join(tmpdir, "polar.txt")
+        dat_path   = os.path.join(tmpdir, "perfil.dat")
+        polar_path = os.path.join(tmpdir, "polar.txt")
 
         _escreve_dat(x, y, nome, dat_path)
-        send_script(
+        script_content = sender.build_script(
             dat_path, polar_path, cond.reynolds, cond.mach,
-            alpha_start, alpha_end, alpha_step, script_path, n_panels, n_ITER
+            alpha_start, alpha_end, alpha_step, n_panels, n_iter
         )
-
-        script_content = Path(script_path).read_text(encoding="utf-8")
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
         try:
@@ -243,10 +220,7 @@ def export_svg(x: np.ndarray, y: np.ndarray, code: str, output_dir: Path) -> Pat
 def export_dat(x: np.ndarray, y: np.ndarray, code: str, output_dir: Path) -> Path:
     dat_path = output_dir if output_dir.suffix.lower() == ".dat" else output_dir / f"naca_{code}.dat"
     dat_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(dat_path, "w", encoding="utf-8") as f:
-        f.write(f"NACA {code}\n")
-        for xi, yi in zip(x, y):
-            f.write(f" {xi:.6f}  {yi:.6f}\n")
+    _escreve_dat(x, y, f"NACA {code}", dat_path)
     return dat_path
 
 

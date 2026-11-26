@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import threading
 import time
 
 from winglabs.aero import optimizer
@@ -19,8 +18,6 @@ from winglabs.aero.xfoil_engine import (
 from winglabs.core import environment as env
 from winglabs.core import naca as nc
 from winglabs.core import pipeline
-
-print_lock = threading.Lock()
 
 
 def input_float(
@@ -87,6 +84,11 @@ def coletar_parametros() -> tuple[env.FlightConditions, dict, pipeline.Wing3DPar
     sweep_deg    = input_float("  Enflechamento (°)",     15.0,  -45.0, 60.0)
     twist_deg    = input_float("  Torção na ponta (°)",   -3.0,  -30.0, 30.0)
     dihedral_deg = input_float("  Diedro (°)",            2.0,   -20.0, 30.0)
+    shell_mm     = input_float("  Espessura da casca oca (mm, 0=sólida)", 0.0, 0.0, 500.0)
+    export_vox   = input_int(  "  Exportar STL versão de Voxels? (0=Não, 1=Sim)", 1 if shell_mm > 0 else 0, 0, 1) == 1
+    ellip_trans  = input_int(  "  Interpolação não-linear e transição elíptica? (0=Não, 1=Sim)", 1, 0, 1) == 1
+    rounded_tip  = input_int(  "  Ponta cilíndrica / elíptica fechada? (0=Não, 1=Sim)", 1, 0, 1) == 1
+    tip_cap_r    = input_float("  Raio da ponta cilíndrica / elíptica (mm)", 60.0, 0.0, 2000.0) if rounded_tip else 0.0
 
     wing_3d = pipeline.Wing3DParams(
         span_mm=span_mm,
@@ -95,6 +97,11 @@ def coletar_parametros() -> tuple[env.FlightConditions, dict, pipeline.Wing3DPar
         tip_twist_deg=twist_deg,
         wing_sweep_deg=sweep_deg,
         wing_dihedral_deg=dihedral_deg,
+        shell_thickness_mm=shell_mm,
+        export_voxel_mesh=export_vox,
+        elliptical_transition=ellip_trans,
+        rounded_tip_cap=rounded_tip,
+        tip_cap_radius_mm=tip_cap_r,
     )
 
     area_m2 = env.wing_area_m2(wing_3d.span_mm, wing_3d.root_chord_mm, wing_3d.tip_chord_mm)

@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using PicoGK;
 
 Wing3DConfig cfg = Wing3DConfig.Load(args);
+cfg.Validate();
 
 try
 {
@@ -30,13 +31,41 @@ try
             cfg.WingDihedralDeg,
             cfg.TipChanferDeg,
             cfg.TargetSectionSizeMM,
-            cfg.OutputStlPath));
+            cfg.OutputStlPath,
+            cfg.ShellThicknessMM,
+            cfg.ExportVoxelMesh,
+            cfg.EllipticalTransition,
+            cfg.RoundedTipCap,
+            cfg.TipCapRadiusMM,
+            cfg.CustomSections),
+        bEndAppWithTask: cfg.Headless);
 }
 catch (Exception e)
 {
     Console.WriteLine("Falha ao executar a tarefa.");
     Console.WriteLine(e.ToString());
     Environment.ExitCode = 1;
+}
+
+public sealed class WingSectionConfig
+{
+    [JsonPropertyName("z_mm")]
+    public double ZMM { get; set; }
+
+    [JsonPropertyName("chord_mm")]
+    public double ChordMM { get; set; }
+
+    [JsonPropertyName("sweep_x_mm")]
+    public double SweepXMM { get; set; }
+
+    [JsonPropertyName("dihedral_y_mm")]
+    public double DihedralYMM { get; set; }
+
+    [JsonPropertyName("twist_deg")]
+    public double TwistDeg { get; set; }
+
+    [JsonPropertyName("thickness_scale")]
+    public double ThicknessScale { get; set; } = 1.0;
 }
 
 internal sealed class Wing3DConfig
@@ -74,6 +103,38 @@ internal sealed class Wing3DConfig
     [JsonPropertyName("voxel_size_mm")]
     public double VoxelSizeMM { get; set; } = 2.5;
 
+    [JsonPropertyName("shell_thickness_mm")]
+    public double ShellThicknessMM { get; set; } = 0.0;
+
+    [JsonPropertyName("export_voxel_mesh")]
+    public bool ExportVoxelMesh { get; set; } = false;
+
+    [JsonPropertyName("elliptical_transition")]
+    public bool EllipticalTransition { get; set; } = true;
+
+    [JsonPropertyName("rounded_tip_cap")]
+    public bool RoundedTipCap { get; set; } = true;
+
+    [JsonPropertyName("tip_cap_radius_mm")]
+    public double TipCapRadiusMM { get; set; } = 60.0;
+
+    [JsonPropertyName("custom_sections")]
+    public List<WingSectionConfig>? CustomSections { get; set; }
+
+    [JsonPropertyName("headless")]
+    public bool Headless { get; set; } = false;
+
+    public void Validate()
+    {
+        SpanMM = Math.Max(10.0, SpanMM);
+        RootChordMM = Math.Max(5.0, RootChordMM);
+        TipChordMM = Math.Max(2.0, TipChordMM);
+        TargetSectionSizeMM = Math.Max(1.0, TargetSectionSizeMM);
+        VoxelSizeMM = Math.Clamp(VoxelSizeMM, 0.05, 100.0);
+        ShellThicknessMM = Math.Max(0.0, ShellThicknessMM);
+        TipCapRadiusMM = Math.Max(0.0, TipCapRadiusMM);
+    }
+
     public static Wing3DConfig Load(string[] args)
     {
         var cfg = new Wing3DConfig();
@@ -102,6 +163,14 @@ internal sealed class Wing3DConfig
             else if (arg == "--chanfer" && i + 1 < args.Length) cfg.TipChanferDeg = ParseDouble(args[++i], cfg.TipChanferDeg);
             else if (arg == "--section-size" && i + 1 < args.Length) cfg.TargetSectionSizeMM = ParseDouble(args[++i], cfg.TargetSectionSizeMM);
             else if (arg == "--voxel" && i + 1 < args.Length) cfg.VoxelSizeMM = ParseDouble(args[++i], cfg.VoxelSizeMM);
+            else if (arg == "--shell-thickness" && i + 1 < args.Length) cfg.ShellThicknessMM = ParseDouble(args[++i], cfg.ShellThicknessMM);
+            else if (arg == "--tip-cap-radius" && i + 1 < args.Length) cfg.TipCapRadiusMM = ParseDouble(args[++i], cfg.TipCapRadiusMM);
+            else if (arg == "--export-voxel-mesh") cfg.ExportVoxelMesh = true;
+            else if (arg == "--elliptical") cfg.EllipticalTransition = true;
+            else if (arg == "--linear") cfg.EllipticalTransition = false;
+            else if (arg == "--rounded-tip") cfg.RoundedTipCap = true;
+            else if (arg == "--flat-tip") cfg.RoundedTipCap = false;
+            else if (arg == "--headless") cfg.Headless = true;
         }
 
         return cfg;

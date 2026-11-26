@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <Compile Remove="WebGUI\**" />
+    <Compile Remove="LEAP71_ShapeKernel\Examples\**" />
     <Content Remove="WebGUI\**" />
     <EmbeddedResource Remove="WebGUI\**" />
     <None Remove="WebGUI\**" />
@@ -16,9 +17,6 @@
 
   <ItemGroup>
     <PackageReference Include="PicoGK" Version="2.3.0" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="LEAP71_ShapeKernel\LEAP71_ShapeKernel.csproj" />
   </ItemGroup>
 
 </Project>

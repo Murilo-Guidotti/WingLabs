@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from winglabs.aero import naca_tester as NacaTester
+from winglabs.aero import optimizer
 from winglabs.aero import xfoil_engine
 from winglabs.core import environment as env
 from winglabs.core import naca as ng
@@ -113,6 +114,149 @@ class TestWingLabsCore(unittest.TestCase):
         self.assertEqual(Zg.shape, (15, 60))
         self.assertAlmostEqual(float(Zg.min()), 0.0, places=4)
         self.assertAlmostEqual(float(Zg.max()), 5000.0, places=4)
+
+    def test_twist_pivots_around_quarter_chord_and_3d_config_fields(self):
+        # Ponto exato no centro aerodinâmico (x=0.25, y=0.0) deve permanecer fixo sob torção
+        x = np.array([0.0, 0.25, 1.0, 0.25])
+        y = np.array([0.0, 0.0, 0.0, 0.0])
+        p_no_twist = pipeline.Wing3DParams(
+            span_mm=1000.0, root_chord_mm=400.0, tip_chord_mm=200.0, tip_twist_deg=0.0
+        )
+        p_twisted = pipeline.Wing3DParams(
+            span_mm=1000.0, root_chord_mm=400.0, tip_chord_mm=200.0, tip_twist_deg=-15.0,
+            shell_thickness_mm=3.5, export_voxel_mesh=True,
+        )
+        X0, Y0, _ = pipeline.build_wing_preview_mesh(x, y, p_no_twist, n_sections=4, n_profile_pts=4)
+        Xt, Yt, _ = pipeline.build_wing_preview_mesh(x, y, p_twisted, n_sections=4, n_profile_pts=4)
+
+        # Coluna 1 corresponde a (x=0.25, y=0.0): invariante com a torção em todas as seções
+        np.testing.assert_allclose(X0[:, 1], Xt[:, 1], atol=1e-6)
+        np.testing.assert_allclose(Y0[:, 1], Yt[:, 1], atol=1e-6)
+        # Bordo de ataque (coluna 0, x=0.0) e bordo de fuga (coluna 2, x=1.0) deslocam em sentidos opostos em Y na ponta
+        self.assertGreater(Yt[-1, 0], 0.0)
+        self.assertLess(Yt[-1, 2], 0.0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cfg_path = pipeline.write_3d_config(
+                tmp_dir / "naca_2412.dat",
+                tmp_dir / "wing.stl",
+                p_twisted,
+                tmp_dir / "wing3d_config.json",
+            )
+            payload = json.loads(cfg_path.read_text(encoding="utf-8"))
+            self.assertAlmostEqual(payload["shell_thickness_mm"], 3.5)
+            self.assertTrue(payload["export_voxel_mesh"])
+            self.assertTrue(payload["elliptical_transition"])
+
+    def test_nonlinear_interpolation_and_elliptical_transition(self):
+        x = np.array([0.0, 1.0])
+        y = np.array([0.0, 0.0])
+        p_lin = pipeline.Wing3DParams(
+            span_mm=1000.0, root_chord_mm=400.0, tip_chord_mm=200.0,
+            tip_twist_deg=0.0, wing_sweep_deg=0.0, elliptical_transition=False,
+        )
+        p_ellip = pipeline.Wing3DParams(
+            span_mm=1000.0, root_chord_mm=400.0, tip_chord_mm=200.0,
+            tip_twist_deg=0.0, wing_sweep_deg=0.0, elliptical_transition=True,
+        )
+        X_lin, _, Z_lin = pipeline.build_wing_preview_mesh(x, y, p_lin, n_sections=10, n_profile_pts=2)
+        X_ell, _, Z_ell = pipeline.build_wing_preview_mesh(x, y, p_ellip, n_sections=10, n_profile_pts=2)
+
+        # Agrupamento não-linear concentra estações mais perto da ponta (Z_ell > Z_lin nas estações intermediárias)
+        self.assertGreater(float(Z_ell[5, 0]), float(Z_lin[5, 0]))
+
+        # Corda na meia-envergadura na distribuição elíptica é maior que na linear trapezoidal
+        chord_mid_lin = float(X_lin[5, 1] - X_lin[5, 0])
+        chord_mid_ell = float(X_ell[5, 1] - X_ell[5, 0])
+        self.assertGreater(chord_mid_ell, chord_mid_lin)
+
+        # Na ponta (última seção), a transição elíptica truncada converge suavemente para c_tip sem quina
+        chord_tip_ell = float(X_ell[-1, 1] - X_ell[-1, 0])
+        self.assertAlmostEqual(chord_tip_ell, 200.0, places=4)
+
+    def test_custom_sections_and_rounded_cylindrical_tip_cap(self):
+        x, y = ng.generator("0012", 40)
+        base_params = pipeline.Wing3DParams(
+            span_mm=1000.0, root_chord_mm=300.0, tip_chord_mm=150.0,
+            target_section_size_mm=250.0, rounded_tip_cap=True, tip_cap_radius_mm=50.0,
+        )
+        secs = pipeline.generate_wing_sections(base_params, n_sections=4)
+        self.assertEqual(len(secs), 5)
+        # Edita manualmente a seção intermediária #2
+        secs[2].chord_mm = 420.0
+        secs[2].twist_deg = -8.5
+        secs[2].thickness_scale = 1.25
+        base_params.custom_sections = secs
+
+        Xg, Yg, Zg = pipeline.build_wing_preview_mesh(x, y, base_params, n_sections=4, n_profile_pts=30)
+        # 5 seções customizadas + 6 anéis da ponta cilíndrica/elíptica = 11 estações
+        self.assertEqual(Xg.shape, (11, 30))
+        # Envergadura total se estende de 0 até span_mm + tip_cap_radius_mm (1000 + 50 = 1050 mm)
+        self.assertAlmostEqual(float(Zg.min()), 0.0, places=3)
+        self.assertAlmostEqual(float(Zg.max()), 1050.0, places=3)
+        # No último anel da ponta cilíndrica (Zg = 1050 mm), a espessura Y converge para ~0 (fechamento curvo)
+        tip_y_span = float(Yg[-1, :].max() - Yg[-1, :].min())
+        root_y_span = float(Yg[0, :].max() - Yg[0, :].min())
+        self.assertLess(tip_y_span, root_y_span * 0.05)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            cfg_path = pipeline.write_3d_config(
+                tmp_dir / "naca_0012.dat",
+                tmp_dir / "wing.stl",
+                base_params,
+                tmp_dir / "wing3d_config.json",
+            )
+            payload = json.loads(cfg_path.read_text(encoding="utf-8"))
+            self.assertTrue(payload["rounded_tip_cap"])
+            self.assertAlmostEqual(payload["tip_cap_radius_mm"], 50.0)
+            self.assertEqual(len(payload["custom_sections"]), 5)
+            self.assertAlmostEqual(payload["custom_sections"][2]["chord_mm"], 420.0)
+            self.assertAlmostEqual(payload["custom_sections"][2]["thickness_scale"], 1.25)
+
+    def test_two_stage_optimizer_coarse_to_fine(self):
+        from unittest import mock
+
+        cond = env.FlightConditions(altitude=1500.0, velocity=60.0, target_cl=0.8, chord_size=1.2)
+        cfg = {
+            "search_mode": "target_cl",
+            "cl_tolerance": 0.15,
+            "camber_max": 2,          # 3 (M=0..2) * 6 (P=2..7) * 2 (T=10,12) = 36 perfis (> 8 -> 2 estágios)
+            "espessuras": [10, 12],
+            "n_panels": 240,
+            "n_ITER": 100,
+            "alpha_start": -2.0,
+            "alpha_end": 10.0,
+            "alpha_step": 0.5,
+            "n_threads": 2,
+        }
+
+        calls_by_panels: list[int] = []
+
+        def _fake_tester_run(args):
+            code, _cond, stage_cfg, _idx, _total = args
+            calls_by_panels.append(int(stage_cfg["n_panels"]))
+            eff = 80.0 + int(code[0]) * 10.0 + int(code[1])
+            return code, {
+                "alpha_opt": 3.0,
+                "cl": 0.80,
+                "cd": 0.0080,
+                "cm": -0.05,
+                "efficiency": eff,
+            }
+
+        with mock.patch("winglabs.aero.naca_tester.run", side_effect=_fake_tester_run):
+            best_code, best_res, top4 = optimizer.run(cond, cfg)
+
+        self.assertIsNotNone(best_res)
+        self.assertEqual(len(top4), 4)
+        # Estágio 1 roda todos os 36 perfis com 120 painéis; Estágio 2 roda apenas o Top 15% (6 perfis) com 240 painéis
+        coarse_calls = [p for p in calls_by_panels if p == 120]
+        fine_calls = [p for p in calls_by_panels if p == 240]
+        self.assertEqual(len(coarse_calls), 36)
+        self.assertEqual(len(fine_calls), 6)
+        self.assertEqual(best_code, top4[0][0])
 
 
 class TestWingLabsUILayout(unittest.TestCase):
@@ -221,6 +365,25 @@ class TestWingLabsUILayout(unittest.TestCase):
         self.assertEqual(self.gui.kpi_labels["code"].cget("text"), "NACA 2315")
         self.assertEqual(self.gui.top4_widgets[2]["tag"].cget("text"), "SELECIONADA")
         self.assertEqual(self.gui.top4_widgets[0]["tag"].cget("text"), "")
+
+        # Valida seções recolhíveis (Geometria 3D, Editor por Seção e Busca & XFOIL)
+        self.assertFalse(self.gui.geometria_3d_aberta)
+        self.assertEqual(self.gui.body_3d.winfo_manager(), "")
+        self.gui._toggle_geometria_3d()
+        self.assertTrue(self.gui.geometria_3d_aberta)
+        self.assertEqual(self.gui.body_3d.winfo_manager(), "pack")
+        self.gui._toggle_geometria_3d()
+        self.assertFalse(self.gui.geometria_3d_aberta)
+        self.assertEqual(self.gui.body_3d.winfo_manager(), "")
+
+        self.assertFalse(self.gui.secoes_3d_aberto)
+        self.assertEqual(self.gui.body_secoes.winfo_manager(), "")
+        self.gui._toggle_secoes_3d()
+        self.assertTrue(self.gui.secoes_3d_aberto)
+        self.assertEqual(self.gui.body_secoes.winfo_manager(), "pack")
+        self.gui._toggle_secoes_3d()
+        self.assertFalse(self.gui.secoes_3d_aberto)
+        self.assertEqual(self.gui.body_secoes.winfo_manager(), "")
 
 
 if __name__ == "__main__":

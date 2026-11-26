@@ -67,6 +67,8 @@ class WingLabsGUI:
         self.cancel_event = threading.Event()
         self._resetando = False
         self._debounce_3d_id: str | None = None
+        self.geometria_3d_aberta = False
+        self.secoes_3d_aberto = False
         self.avancado_aberto = False
         self.entries: dict[str, tk.Entry] = {}
 
@@ -76,11 +78,20 @@ class WingLabsGUI:
         self.selected_idx: int = 0
         self.search_mode = tk.StringVar(value="payload")
         self.auto_pipeline = tk.BooleanVar(value=True)
+        self.export_voxel_mesh = tk.BooleanVar(value=False)
+        self.elliptical_transition = tk.BooleanVar(value=True)
+        self.rounded_tip_cap = tk.BooleanVar(value=True)
+
+        self.custom_sections: list[pipeline.WingSection] = []
+        self.selected_section_idx: int = 0
+        self._syncing_section_ui: bool = False
+        self.vars_sec: dict[str, tk.StringVar] = {}
 
         self._configura_janela()
         self._aplica_tema()
         self._cria_layout()
         self._atualiza_modo_ui()
+        self._recalcular_secoes_base(redraw=False)
         self._atualiza_dados()
         self._desenha_3d_preview("2412")
 
@@ -316,19 +327,7 @@ class WingLabsGUI:
         grid_voo.columnconfigure(1, weight=1)
 
         for idx_v, (key, label, default) in enumerate([("altitude", "Altitude (m)", "1500"), ("velocity", "Velocidade (m/s)", "60")]):
-            cell = tk.Frame(grid_voo, bg=COR["card"])
-            cell.grid(row=0, column=idx_v, sticky="ew", padx=3, pady=2)
-            tk.Label(cell, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w")
-            var = tk.StringVar(value=default)
-            var.trace_add("write", lambda *_: self._atualiza_dados())
-            ent = tk.Entry(
-                cell, textvariable=var, bg=COR["bg"], fg=COR["texto"],
-                insertbackground=COR["azul"], font=FONTE["entrada"], relief="flat", bd=3,
-                highlightthickness=1, highlightbackground=COR["borda"], highlightcolor=COR["azul"]
-            )
-            ent.pack(fill="x", pady=(2, 0))
-            self.vars_voo[key] = var
-            self.entries[key] = ent
+            self._campo_grid(grid_voo, key, label, default, 0, idx_v, self.vars_voo, self._atualiza_dados)
 
         self.frame_payload_input = tk.Frame(card_voo, bg=COR["card"])
         self._campo(self.frame_payload_input, "payload_kg", "Peso da Carga / Massa (kg)", "120", self.vars_voo, self._atualiza_dados)
@@ -345,11 +344,34 @@ class WingLabsGUI:
         self.lbl_area = self._mini_kv(self.atm_box, "Área Alar S", "—")
         self.lbl_clreq = self._mini_kv(self.atm_box, "CL Mín. Carga", "—", COR["verde"])
 
-        # Geometria 3D da Asa (Tempo real + Módulo 2)
+        # Geometria 3D da Asa (Seção recolhível — Tempo real + Módulo 2)
         self.vars_3d: dict[str, tk.StringVar] = {}
-        card_3d = self._card(p, "GEOMETRIA 3D DA ASA (MÓDULO 2)")
-        grid3d = tk.Frame(card_3d, bg=COR["card"])
-        grid3d.pack(fill="x", padx=10, pady=(2, 5))
+        outer_3d = tk.Frame(p, bg=COR["borda"])
+        outer_3d.pack(fill="x", padx=0, pady=0)
+        card_3d = tk.Frame(outer_3d, bg=COR["card"])
+        card_3d.pack(fill="x", padx=0, pady=(0, 1))
+
+        hdr_3d_card = tk.Frame(card_3d, bg=COR["card"], cursor="hand2")
+        hdr_3d_card.pack(fill="x")
+        self.lbl_toggle_3d = tk.Label(
+            hdr_3d_card, text="▸  GEOMETRIA 3D DA ASA (MÓDULO 2)", bg=COR["card"], fg=COR["azul"],
+            font=FONTE["pequena"], padx=10, pady=6, cursor="hand2"
+        )
+        self.lbl_toggle_3d.pack(side="left")
+        self.lbl_resumo_3d = tk.Label(
+            hdr_3d_card, text="5000mm · 1200→700mm", bg=COR["card"], fg=COR["texto_dim"],
+            font=FONTE["pequena"], padx=8, cursor="hand2"
+        )
+        self.lbl_resumo_3d.pack(side="right")
+        for w_hdr in (hdr_3d_card, self.lbl_toggle_3d, self.lbl_resumo_3d):
+            w_hdr.bind("<Button-1>", lambda _e: self._toggle_geometria_3d())
+
+        tk.Frame(card_3d, bg=COR["borda"], height=1).pack(fill="x", padx=10)
+
+        self.body_3d = tk.Frame(card_3d, bg=COR["card"])
+
+        grid3d = tk.Frame(self.body_3d, bg=COR["card"])
+        grid3d.pack(fill="x", padx=10, pady=(4, 5))
         grid3d.columnconfigure(0, weight=1)
         grid3d.columnconfigure(1, weight=1)
 
@@ -357,26 +379,137 @@ class WingLabsGUI:
             ("span_mm", "Envergadura (mm)", "5000", 0, 0),
             ("root_chord_mm", "Corda Raiz (mm)", "1200", 0, 1),
             ("tip_chord_mm", "Corda Ponta (mm)", "700", 1, 0),
-            ("wing_sweep_deg", "Enflechamento (°)", "15", 1, 1),
-            ("tip_twist_deg", "Torção Ponta (°)", "-3", 2, 0),
-            ("wing_dihedral_deg", "Diedro (°)", "2", 2, 1),
-            ("section_size_mm", "Tam. Seção (mm)", "250", 3, 0),
-            ("voxel_size_mm", "Voxel (mm)", "2.5", 3, 1),
+            ("wing_sweep_deg", "Enflechamento (°)", "0", 1, 1),
+            ("tip_twist_deg", "Torção Ponta (°)", "0", 2, 0),
+            ("wing_dihedral_deg", "Diedro (°)", "0", 2, 1),
+            ("section_size_mm", "Tam. Seção (mm)", "100", 3, 0),
+            ("voxel_size_mm", "Voxel (mm)", "1.0", 3, 1),
+            ("shell_thickness_mm", "Casca Oca (mm, 0=sólida)", "0", 4, 0),
+            ("tip_chanfer_deg", "Chanfro Ponta (°)", "0", 4, 1),
+            ("tip_cap_radius_mm", "Raio Ponta Cil. (mm)", "20", 5, 0),
         ]
         for key, label, default, r, c in campos_3d:
-            cell = tk.Frame(grid3d, bg=COR["card"])
-            cell.grid(row=r, column=c, sticky="ew", padx=3, pady=2)
-            tk.Label(cell, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w")
-            var = tk.StringVar(value=default)
-            var.trace_add("write", lambda *_: self._ao_editar_3d())
-            ent = tk.Entry(
-                cell, textvariable=var, bg=COR["bg"], fg=COR["texto"],
-                insertbackground=COR["azul"], font=FONTE["entrada"], relief="flat", bd=3,
-                highlightthickness=1, highlightbackground=COR["borda"], highlightcolor=COR["azul"]
-            )
-            ent.pack(fill="x", pady=(2, 0))
-            self.vars_3d[key] = var
-            self.entries[key] = ent
+            self._campo_grid(grid3d, key, label, default, r, c, self.vars_3d, lambda k=key: self._ao_editar_3d(k))
+
+        chk_vox_cell = tk.Frame(grid3d, bg=COR["card"])
+        chk_vox_cell.grid(row=5, column=1, sticky="sw", padx=3, pady=(2, 2))
+        tk.Checkbutton(
+            chk_vox_cell,
+            text="Transição Elíptica",
+            variable=self.elliptical_transition,
+            command=lambda: self._ao_editar_3d("elliptical_transition"),
+            bg=COR["card"], fg=COR["texto_sec"],
+            selectcolor=COR["bg"], activebackground=COR["card"],
+            activeforeground=COR["texto"], font=FONTE["pequena"],
+        ).pack(anchor="w")
+        tk.Checkbutton(
+            chk_vox_cell,
+            text="Ponta Cilíndrica / Elíp.",
+            variable=self.rounded_tip_cap,
+            command=lambda: self._ao_editar_3d("rounded_tip_cap"),
+            bg=COR["card"], fg=COR["texto_sec"],
+            selectcolor=COR["bg"], activebackground=COR["card"],
+            activeforeground=COR["texto"], font=FONTE["pequena"],
+        ).pack(anchor="w")
+
+        chk_row_extra = tk.Frame(self.body_3d, bg=COR["card"])
+        chk_row_extra.pack(fill="x", padx=12, pady=(0, 6))
+        tk.Checkbutton(
+            chk_row_extra,
+            text="Exportar STL Versão de Voxels (Marching Cubes)",
+            variable=self.export_voxel_mesh,
+            bg=COR["card"], fg=COR["texto_sec"],
+            selectcolor=COR["bg"], activebackground=COR["card"],
+            activeforeground=COR["texto"], font=FONTE["pequena"],
+        ).pack(anchor="w")
+
+        # Editor Individual de Seções da Asa (Seção recolhível)
+        outer_sec = tk.Frame(p, bg=COR["borda"])
+        outer_sec.pack(fill="x", padx=0, pady=0)
+        card_sec = tk.Frame(outer_sec, bg=COR["card"])
+        card_sec.pack(fill="x", padx=0, pady=(0, 1))
+
+        hdr_sec_card = tk.Frame(card_sec, bg=COR["card"], cursor="hand2")
+        hdr_sec_card.pack(fill="x")
+        self.lbl_toggle_secoes = tk.Label(
+            hdr_sec_card, text="▸  EDITOR POR SEÇÃO DA ASA (3D)", bg=COR["card"], fg=COR["azul"],
+            font=FONTE["pequena"], padx=10, pady=6, cursor="hand2"
+        )
+        self.lbl_toggle_secoes.pack(side="left")
+        self.lbl_sec_title = tk.Label(
+            hdr_sec_card, text="20 estações", bg=COR["card"], fg=COR["texto_dim"],
+            font=FONTE["pequena"], padx=8, cursor="hand2"
+        )
+        self.lbl_sec_title.pack(side="right")
+        for w_hdr in (hdr_sec_card, self.lbl_toggle_secoes, self.lbl_sec_title):
+            w_hdr.bind("<Button-1>", lambda _e: self._toggle_secoes_3d())
+
+        tk.Frame(card_sec, bg=COR["borda"], height=1).pack(fill="x", padx=10)
+
+        self.body_secoes = tk.Frame(card_sec, bg=COR["card"])
+
+        sec_hdr = tk.Frame(self.body_secoes, bg=COR["card"])
+        sec_hdr.pack(fill="x", padx=10, pady=(4, 3))
+        tk.Label(
+            sec_hdr, text="Selecione ou edite a estação:",
+            bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]
+        ).pack(side="left")
+        tk.Button(
+            sec_hdr, text="↺ Auto", relief="flat", cursor="hand2",
+            bg=COR["surface"], fg=COR["azul"], activebackground=COR["card_hover"],
+            activeforeground=COR["texto"], font=FONTE["pequena"], padx=6, pady=1,
+            command=lambda: self._recalcular_secoes_base(redraw=True),
+        ).pack(side="right")
+
+        nav_sec = tk.Frame(self.body_secoes, bg=COR["card"])
+        nav_sec.pack(fill="x", padx=10, pady=(0, 3))
+        tk.Button(
+            nav_sec, text="◀", relief="flat", cursor="hand2", width=2,
+            bg=COR["surface"], fg=COR["texto"], activebackground=COR["card_hover"],
+            font=FONTE["pequena"], command=lambda: self._nav_secao(-1),
+        ).pack(side="left", padx=(0, 3))
+
+        self.var_sec_combo = tk.StringVar()
+        self.cmb_secao = ttk.Combobox(
+            nav_sec, textvariable=self.var_sec_combo, state="readonly", font=FONTE["pequena"]
+        )
+        self.cmb_secao.pack(side="left", fill="x", expand=True)
+        self.cmb_secao.bind("<<ComboboxSelected>>", lambda _e: self._ao_selecionar_combo_secao())
+
+        tk.Button(
+            nav_sec, text="▶", relief="flat", cursor="hand2", width=2,
+            bg=COR["surface"], fg=COR["texto"], activebackground=COR["card_hover"],
+            font=FONTE["pequena"], command=lambda: self._nav_secao(1),
+        ).pack(side="left", padx=(3, 0))
+
+        act_sec = tk.Frame(self.body_secoes, bg=COR["card"])
+        act_sec.pack(fill="x", padx=10, pady=(0, 4))
+        tk.Button(
+            act_sec, text="+ Inserir Seção", relief="flat", cursor="hand2",
+            bg=COR["surface"], fg=COR["verde"], activebackground=COR["card_hover"],
+            font=FONTE["pequena"], pady=2, command=self._inserir_secao,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 2))
+        tk.Button(
+            act_sec, text="- Remover Seção", relief="flat", cursor="hand2",
+            bg=COR["surface"], fg=COR["vermelho"], activebackground=COR["card_hover"],
+            font=FONTE["pequena"], pady=2, command=self._remover_secao,
+        ).pack(side="left", fill="x", expand=True, padx=(2, 0))
+
+        grid_sec = tk.Frame(self.body_secoes, bg=COR["card"])
+        grid_sec.pack(fill="x", padx=10, pady=(0, 8))
+        grid_sec.columnconfigure(0, weight=1)
+        grid_sec.columnconfigure(1, weight=1)
+
+        campos_sec = [
+            ("sec_z_mm", "Posição Z (mm)", "0", 0, 0),
+            ("sec_chord_mm", "Corda Seção (mm)", "1200", 0, 1),
+            ("sec_sweep_x_mm", "Enflech. X (mm)", "0", 1, 0),
+            ("sec_dihedral_y_mm", "Diedro Y (mm)", "0", 1, 1),
+            ("sec_twist_deg", "Torção Seção (°)", "0", 2, 0),
+            ("sec_thickness_pct", "Espessura (%)", "100", 2, 1),
+        ]
+        for key, label, default, r, c in campos_sec:
+            self._campo_grid(grid_sec, key, label, default, r, c, self.vars_sec, self._ao_editar_secao_individual, accent_color=COR["verde"])
 
         # Busca & XFOIL (Seção recolhível para reduzir carga cognitiva inicial)
         self.vars_busca: dict[str, tk.StringVar] = {}
@@ -412,27 +545,15 @@ class WingLabsGUI:
         campos_busca = [
             ("cl_tolerance", "Tolerância CL (±)", "0.15", 0, 0),
             ("camber_max", "Camber Máx (0-9)", "6", 0, 1),
-            ("alpha_start", "Alpha Início (°)", "-2", 1, 0),
-            ("alpha_end", "Alpha Fim (°)", "12", 1, 1),
-            ("alpha_step", "Passo Alpha (°)", "0.5", 2, 0),
-            ("n_panels", "Painéis XFOIL", "240", 2, 1),
-            ("n_iterations", "Iterações", "100", 3, 0),
-            ("n_threads", "Threads", "4", 3, 1),
+            ("alpha_start", "Alpha Início (°)", "0", 1, 0),
+            ("alpha_end", "Alpha Fim (°)", "0", 1, 1),
+            ("alpha_step", "Passo Alpha (°)", "0.0", 2, 0),
+            ("n_panels", "Painéis XFOIL", "500", 2, 1),
+            ("n_iterations", "Iterações", "200", 3, 0),
+            ("n_threads", "Threads", "6", 3, 1),
         ]
         for key, label, default, r, c in campos_busca:
-            cell = tk.Frame(g_b, bg=COR["card"])
-            cell.grid(row=r, column=c, sticky="ew", padx=3, pady=3)
-            tk.Label(cell, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w")
-            var = tk.StringVar(value=default)
-            var.trace_add("write", lambda *_: self._atualiza_dados())
-            ent = tk.Entry(
-                cell, textvariable=var, bg=COR["bg"], fg=COR["texto"],
-                insertbackground=COR["azul"], font=FONTE["entrada"], relief="flat", bd=3,
-                highlightthickness=1, highlightbackground=COR["borda"], highlightcolor=COR["azul"]
-            )
-            ent.pack(fill="x", pady=(2, 0))
-            self.vars_busca[key] = var
-            self.entries[key] = ent
+            self._campo_grid(g_b, key, label, default, r, c, self.vars_busca, self._atualiza_dados, pady=3)
 
         self._campo(self.body_busca, "espessuras", "Espessuras (%)", "8,10,12,15,18", self.vars_busca, self._atualiza_dados)
 
@@ -442,19 +563,7 @@ class WingLabsGUI:
         g_f.columnconfigure(0, weight=1)
         g_f.columnconfigure(1, weight=1)
         for idx_f, (key, label, default) in enumerate([("cd_min", "CD mín (0=auto)", "0"), ("eff_max", "CL/CD máx (0=auto)", "0")]):
-            cell = tk.Frame(g_f, bg=COR["card"])
-            cell.grid(row=0, column=idx_f, sticky="ew", padx=3)
-            tk.Label(cell, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w")
-            var = tk.StringVar(value=default)
-            var.trace_add("write", lambda *_: self._atualiza_dados())
-            ent = tk.Entry(
-                cell, textvariable=var, bg=COR["bg"], fg=COR["texto"],
-                insertbackground=COR["azul"], font=FONTE["entrada"], relief="flat", bd=3,
-                highlightthickness=1, highlightbackground=COR["borda"], highlightcolor=COR["azul"]
-            )
-            ent.pack(fill="x", pady=(2, 0))
-            self.vars_filtros[key] = var
-            self.entries[key] = ent
+            self._campo_grid(g_f, key, label, default, 0, idx_f, self.vars_filtros, self._atualiza_dados, pady=0)
 
         self._bind_mousewheel(self.frame_sb)
 
@@ -631,6 +740,34 @@ class WingLabsGUI:
         tk.Frame(inner, bg=COR["borda"], height=1).pack(fill="x", padx=10)
         return inner
 
+    def _campo_grid(
+        self,
+        parent: tk.Frame,
+        key: str,
+        label: str,
+        padrao: str,
+        row: int,
+        col: int,
+        dic: dict[str, tk.StringVar],
+        on_change=None,
+        accent_color: str = COR["azul"],
+        pady: int = 2,
+    ):
+        cell = tk.Frame(parent, bg=COR["card"])
+        cell.grid(row=row, column=col, sticky="ew", padx=3, pady=pady)
+        tk.Label(cell, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w")
+        var = tk.StringVar(value=padrao)
+        if on_change:
+            var.trace_add("write", lambda *_: on_change())
+        ent = tk.Entry(
+            cell, textvariable=var, bg=COR["bg"], fg=COR["texto"],
+            insertbackground=accent_color, font=FONTE["entrada"], relief="flat", bd=3,
+            highlightthickness=1, highlightbackground=COR["borda"], highlightcolor=accent_color
+        )
+        ent.pack(fill="x", pady=(2, 0))
+        dic[key] = var
+        self.entries[key] = ent
+
     def _campo(self, parent, key: str, label: str, padrao: str, dic: dict, on_change=None):
         tk.Label(parent, text=label, bg=COR["card"], fg=COR["texto_sec"], font=FONTE["pequena"]).pack(anchor="w", padx=10, pady=(4, 0))
         var = tk.StringVar(value=padrao)
@@ -662,6 +799,26 @@ class WingLabsGUI:
         widget.bind("<MouseWheel>", self._on_mousewheel)
         for child in widget.winfo_children():
             self._bind_mousewheel(child)
+
+    def _toggle_geometria_3d(self):
+        self.geometria_3d_aberta = not self.geometria_3d_aberta
+        if self.geometria_3d_aberta:
+            self.lbl_toggle_3d.config(text="▾  GEOMETRIA 3D DA ASA (MÓDULO 2)")
+            self.body_3d.pack(fill="x")
+            self._bind_mousewheel(self.body_3d)
+        else:
+            self.lbl_toggle_3d.config(text="▸  GEOMETRIA 3D DA ASA (MÓDULO 2)")
+            self.body_3d.pack_forget()
+
+    def _toggle_secoes_3d(self):
+        self.secoes_3d_aberto = not self.secoes_3d_aberto
+        if self.secoes_3d_aberto:
+            self.lbl_toggle_secoes.config(text="▾  EDITOR POR SEÇÃO DA ASA (3D)")
+            self.body_secoes.pack(fill="x")
+            self._bind_mousewheel(self.body_secoes)
+        else:
+            self.lbl_toggle_secoes.config(text="▸  EDITOR POR SEÇÃO DA ASA (3D)")
+            self.body_secoes.pack_forget()
 
     def _toggle_avancado(self):
         self.avancado_aberto = not self.avancado_aberto
@@ -733,17 +890,129 @@ class WingLabsGUI:
             self._marca_campo(key, False)
             return default
 
-    def _le_wing_3d(self) -> pipeline.Wing3DParams:
+    def _le_wing_3d_base(self) -> pipeline.Wing3DParams:
         return pipeline.Wing3DParams(
             span_mm=max(100.0, self._f(self.vars_3d, "span_mm", 5000.0)),
             root_chord_mm=max(50.0, self._f(self.vars_3d, "root_chord_mm", 1200.0)),
             tip_chord_mm=max(20.0, self._f(self.vars_3d, "tip_chord_mm", 700.0)),
-            tip_twist_deg=self._f(self.vars_3d, "tip_twist_deg", -3.0),
-            wing_sweep_deg=self._f(self.vars_3d, "wing_sweep_deg", 15.0),
-            wing_dihedral_deg=self._f(self.vars_3d, "wing_dihedral_deg", 2.0),
-            target_section_size_mm=max(20.0, self._f(self.vars_3d, "section_size_mm", 250.0)),
-            voxel_size_mm=max(0.5, self._f(self.vars_3d, "voxel_size_mm", 2.5)),
+            tip_twist_deg=self._f(self.vars_3d, "tip_twist_deg", 0.0),
+            wing_sweep_deg=self._f(self.vars_3d, "wing_sweep_deg", 0.0),
+            wing_dihedral_deg=self._f(self.vars_3d, "wing_dihedral_deg", 0.0),
+            tip_chanfer_deg=self._f(self.vars_3d, "tip_chanfer_deg", 0.0),
+            target_section_size_mm=max(20.0, self._f(self.vars_3d, "section_size_mm", 100.0)),
+            voxel_size_mm=max(0.5, self._f(self.vars_3d, "voxel_size_mm", 1.0)),
+            shell_thickness_mm=max(0.0, self._f(self.vars_3d, "shell_thickness_mm", 0.0)),
+            export_voxel_mesh=bool(self.export_voxel_mesh.get()),
+            elliptical_transition=bool(self.elliptical_transition.get()),
+            rounded_tip_cap=bool(self.rounded_tip_cap.get()),
+            tip_cap_radius_mm=max(0.0, self._f(self.vars_3d, "tip_cap_radius_mm", 20.0)),
         )
+
+    def _le_wing_3d(self) -> pipeline.Wing3DParams:
+        params = self._le_wing_3d_base()
+        if self.custom_sections and len(self.custom_sections) >= 2:
+            params.custom_sections = list(self.custom_sections)
+        return params
+
+    # ----------------------------------------------------------
+    # GERENCIAMENTO DO EDITOR INDIVIDUAL DE SEÇÕES 3D
+    # ----------------------------------------------------------
+
+    def _recalcular_secoes_base(self, redraw: bool = True):
+        base_params = self._le_wing_3d_base()
+        self.custom_sections = pipeline.generate_wing_sections(base_params)
+        if self.selected_section_idx >= len(self.custom_sections):
+            self.selected_section_idx = max(0, len(self.custom_sections) - 1)
+        self._atualiza_ui_secoes()
+        if redraw:
+            self._agenda_preview_3d()
+
+    def _format_sec_label(self, idx: int, sec: pipeline.WingSection, total: int) -> str:
+        tag = " [Raiz]" if idx == 0 else (" [Ponta]" if idx == total - 1 else "")
+        return f"#{idx + 1}/{total} · Z={sec.z_mm:.0f}mm · c={sec.chord_mm:.0f}mm{tag}"
+
+    def _atualiza_ui_secoes(self):
+        if not self.custom_sections:
+            return
+        total = len(self.custom_sections)
+        self.selected_section_idx = max(0, min(self.selected_section_idx, total - 1))
+        self.lbl_sec_title.config(text=f"{total} estações")
+
+        opcoes = [self._format_sec_label(i, s, total) for i, s in enumerate(self.custom_sections)]
+        self.cmb_secao["values"] = opcoes
+        self.cmb_secao.current(self.selected_section_idx)
+
+        sec = self.custom_sections[self.selected_section_idx]
+        self._syncing_section_ui = True
+        try:
+            self.vars_sec["sec_z_mm"].set(f"{sec.z_mm:.1f}")
+            self.vars_sec["sec_chord_mm"].set(f"{sec.chord_mm:.1f}")
+            self.vars_sec["sec_sweep_x_mm"].set(f"{sec.sweep_x_mm:.1f}")
+            self.vars_sec["sec_dihedral_y_mm"].set(f"{sec.dihedral_y_mm:.1f}")
+            self.vars_sec["sec_twist_deg"].set(f"{sec.twist_deg:.2f}")
+            self.vars_sec["sec_thickness_pct"].set(f"{sec.thickness_scale * 100.0:.0f}")
+        finally:
+            self._syncing_section_ui = False
+
+    def _ao_selecionar_combo_secao(self):
+        idx = self.cmb_secao.current()
+        if idx >= 0:
+            self.selected_section_idx = idx
+            self._atualiza_ui_secoes()
+            self._agenda_preview_3d()
+
+    def _nav_secao(self, delta: int):
+        if not self.custom_sections:
+            return
+        self.selected_section_idx = (self.selected_section_idx + delta) % len(self.custom_sections)
+        self._atualiza_ui_secoes()
+        self._agenda_preview_3d()
+
+    def _inserir_secao(self):
+        if len(self.custom_sections) < 2:
+            return
+        idx = min(self.selected_section_idx, len(self.custom_sections) - 2)
+        s_a = self.custom_sections[idx]
+        s_b = self.custom_sections[idx + 1]
+        nova = pipeline.WingSection(
+            z_mm=round(0.5 * (s_a.z_mm + s_b.z_mm), 2),
+            chord_mm=round(0.5 * (s_a.chord_mm + s_b.chord_mm), 2),
+            sweep_x_mm=round(0.5 * (s_a.sweep_x_mm + s_b.sweep_x_mm), 2),
+            dihedral_y_mm=round(0.5 * (s_a.dihedral_y_mm + s_b.dihedral_y_mm), 2),
+            twist_deg=round(0.5 * (s_a.twist_deg + s_b.twist_deg), 3),
+            thickness_scale=round(0.5 * (s_a.thickness_scale + s_b.thickness_scale), 3),
+        )
+        self.custom_sections.insert(idx + 1, nova)
+        self.selected_section_idx = idx + 1
+        self._atualiza_ui_secoes()
+        self._agenda_preview_3d()
+
+    def _remover_secao(self):
+        if len(self.custom_sections) <= 2:
+            return
+        del self.custom_sections[self.selected_section_idx]
+        self.selected_section_idx = min(self.selected_section_idx, len(self.custom_sections) - 1)
+        self._atualiza_ui_secoes()
+        self._agenda_preview_3d()
+
+    def _ao_editar_secao_individual(self):
+        if self._resetando or self._syncing_section_ui or not self.custom_sections:
+            return
+        idx = self.selected_section_idx
+        sec = self.custom_sections[idx]
+        sec.z_mm = max(0.0, self._f(self.vars_sec, "sec_z_mm", sec.z_mm))
+        sec.chord_mm = max(5.0, self._f(self.vars_sec, "sec_chord_mm", sec.chord_mm))
+        sec.sweep_x_mm = self._f(self.vars_sec, "sec_sweep_x_mm", sec.sweep_x_mm)
+        sec.dihedral_y_mm = self._f(self.vars_sec, "sec_dihedral_y_mm", sec.dihedral_y_mm)
+        sec.twist_deg = self._f(self.vars_sec, "sec_twist_deg", sec.twist_deg)
+        thick_pct = max(10.0, min(400.0, self._f(self.vars_sec, "sec_thickness_pct", sec.thickness_scale * 100.0)))
+        sec.thickness_scale = thick_pct / 100.0
+
+        total = len(self.custom_sections)
+        opcoes = [self._format_sec_label(i, s, total) for i, s in enumerate(self.custom_sections)]
+        self.cmb_secao["values"] = opcoes
+        self.var_sec_combo.set(opcoes[idx])
+        self._agenda_preview_3d()
 
     def _monta_cond_cfg(self):
         w3d = self._le_wing_3d()
@@ -786,12 +1055,12 @@ class WingLabsGUI:
             "espessuras":   espessuras,
             "cd_min":       cd_min_val if cd_min_val > 0 else env.min_Cd(cond.reynolds),
             "eff_max":      eff_max_val if eff_max_val > 0 else env.max_efficiency(cond.reynolds),
-            "alpha_start":  self._f(self.vars_busca, "alpha_start", -2.0),
-            "alpha_end":    self._f(self.vars_busca, "alpha_end", 12.0),
-            "alpha_step":   self._f(self.vars_busca, "alpha_step", 0.5),
-            "n_panels":     self._i(self.vars_busca, "n_panels", 240),
-            "n_threads":    self._i(self.vars_busca, "n_threads", 4),
-            "n_ITER":       self._i(self.vars_busca, "n_iterations", 100),
+            "alpha_start":  self._f(self.vars_busca, "alpha_start", 0.0),
+            "alpha_end":    self._f(self.vars_busca, "alpha_end", 0.0),
+            "alpha_step":   self._f(self.vars_busca, "alpha_step", 0.0),
+            "n_panels":     self._i(self.vars_busca, "n_panels", 500),
+            "n_threads":    self._i(self.vars_busca, "n_threads", 6),
+            "n_ITER":       self._i(self.vars_busca, "n_iterations", 200),
         }
         return cond, cfg, w3d
 
@@ -799,7 +1068,7 @@ class WingLabsGUI:
         if self._resetando:
             return
         try:
-            cond, cfg, _ = self._monta_cond_cfg()
+            cond, cfg, w3d = self._monta_cond_cfg()
             self.lbl_re.config(text=f"{cond.reynolds:,.0f}")
             self.lbl_mach.config(text=f"{cond.mach:.4f}")
             self.lbl_rho.config(text=f"{cond.rho:.4f}")
@@ -808,19 +1077,27 @@ class WingLabsGUI:
                 self.lbl_clreq.config(text=f"{cfg['required_cl']:.4f}")
             else:
                 self.lbl_clreq.config(text=f"{cond.target_cl:.3f} (alvo)")
+            self.lbl_resumo_3d.config(
+                text=f"{w3d.span_mm:.0f}mm · {w3d.root_chord_mm:.0f}→{w3d.tip_chord_mm:.0f}mm"
+            )
             self.lbl_resumo_busca.config(
                 text=f"α {cfg['alpha_start']:.0f}°..{cfg['alpha_end']:.0f}° · {cfg['n_panels']}p"
             )
         except Exception:
             self.lbl_re.config(text="erro")
 
-    def _ao_editar_3d(self):
+    def _ao_editar_3d(self, key: str = ""):
         if self._resetando:
             return
+        if key not in ("voxel_size_mm", "shell_thickness_mm", "tip_chanfer_deg", "tip_cap_radius_mm", "rounded_tip_cap"):
+            self._recalcular_secoes_base(redraw=False)
         self._atualiza_dados()
+        self._agenda_preview_3d()
+
+    def _agenda_preview_3d(self):
         if self._debounce_3d_id is not None:
             self.root.after_cancel(self._debounce_3d_id)
-        self._debounce_3d_id = self.root.after(180, self._dispara_preview_3d)
+        self._debounce_3d_id = self.root.after(160, self._dispara_preview_3d)
 
     def _dispara_preview_3d(self):
         self._debounce_3d_id = None
@@ -1093,6 +1370,14 @@ class WingLabsGUI:
                 Xg, Zg, Yg,
                 color=COR["azul"], alpha=0.88, edgecolor="#0F2A3F", linewidth=0.25, antialiased=True
             )
+
+            # Destaca em verde a seção atualmente selecionada no editor individual de seções
+            if self.custom_sections and 0 <= self.selected_section_idx < min(len(self.custom_sections), Xg.shape[0]):
+                si = self.selected_section_idx
+                self.ax_3d.plot(
+                    Xg[si, :], Zg[si, :], Yg[si, :],
+                    color=COR["verde"], linewidth=1.8, zorder=10
+                )
             self.ax_3d.set_xlabel("Corda X (mm)", color=COR["texto_sec"], fontsize=8, labelpad=4)
             self.ax_3d.set_ylabel("Envergadura Z (mm)", color=COR["texto_sec"], fontsize=8, labelpad=4)
             self.ax_3d.set_zlabel("Diedro / Esp. Y (mm)", color=COR["texto_sec"], fontsize=8, labelpad=4)
@@ -1197,9 +1482,15 @@ class WingLabsGUI:
             for k, v in [
                 ("span_mm", "5000"), ("root_chord_mm", "1200"), ("tip_chord_mm", "700"),
                 ("wing_sweep_deg", "15"), ("tip_twist_deg", "-3"), ("wing_dihedral_deg", "2"),
-                ("section_size_mm", "250"), ("voxel_size_mm", "2.5"),
+                ("section_size_mm", "250"), ("voxel_size_mm", "2.5"), ("shell_thickness_mm", "0"),
+                ("tip_chanfer_deg", "0"), ("tip_cap_radius_mm", "60"),
             ]:
                 self.vars_3d[k].set(v)
+            self.export_voxel_mesh.set(False)
+            self.elliptical_transition.set(True)
+            self.rounded_tip_cap.set(True)
+            self.selected_section_idx = 0
+            self._recalcular_secoes_base(redraw=False)
             for k, v in [
                 ("cl_tolerance", "0.15"), ("camber_max", "6"), ("espessuras", "8,10,12,15,18"),
                 ("alpha_start", "-2"), ("alpha_end", "12"), ("alpha_step", "0.5"),
